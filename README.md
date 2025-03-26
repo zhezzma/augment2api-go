@@ -67,6 +67,7 @@ docker-compose up -d
 ### 2. 获取Token
 
 访问 `http://ip:27080/` 进入管理页面
+<img width="1576" alt="image" src="https://github.com/user-attachments/assets/4d387e3b-408a-4128-9e29-68d14fb22ccf" />
 1. 点击获取授权链接
 2. 复制授权链接到浏览器中打开
 3. 使用邮箱进行登录（域名邮箱也可）
