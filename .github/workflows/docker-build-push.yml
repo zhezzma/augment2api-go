@@ -55,7 +55,7 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest,enable=${{ github.ref_name == 'master' }}
             type=semver,pattern={{version}},prefix=v
-            type=raw,value=${{ matrix.suffix }},suffix=-{{ date 'YYYYMMdd' }}
+            type=raw,value=${{ matrix.suffix }},suffix=-{{ date 'yyyyMMdd' }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
