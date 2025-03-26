@@ -2,9 +2,8 @@ name: Multi-Arch Docker Build & Export
 
 on:
   push:
-    branches: [ "master" ]
     tags: [ "v*.*.*" ]
-  workflow_dispatch:  # 添加手动触发选项
+  workflow_dispatch:
 
 permissions:
   contents: read

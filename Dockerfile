@@ -29,7 +29,6 @@ RUN adduser -D -g '' appuser
 COPY --from=builder /app/augment2api /app/augment2api
 
 # 复制静态文件和模板
-COPY --from=builder /app/static /app/static
 COPY --from=builder /app/templates /app/templates
 
 # 设置工作目录
