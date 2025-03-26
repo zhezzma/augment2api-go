@@ -2,7 +2,6 @@ package api
 
 import (
 	"augment2api/config"
-	"context"
 	"math/rand"
 	"net/http"
 
@@ -17,8 +16,8 @@ type TokenInfo struct {
 
 // GetRedisTokenHandler 从Redis获取token列表
 func GetRedisTokenHandler(c *gin.Context) {
-	// 获取所有token的key
-	tokenKeys, err := config.RDB.Keys(context.Background(), "token:*").Result()
+	// 获取所有token的key (使用通配符模式)
+	keys, err := config.RedisKeys("token:*")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"status": "error",
@@ -28,7 +27,7 @@ func GetRedisTokenHandler(c *gin.Context) {
 	}
 
 	// 如果没有token
-	if len(tokenKeys) == 0 {
+	if len(keys) == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"status": "success",
 			"tokens": []TokenInfo{},
@@ -38,12 +37,12 @@ func GetRedisTokenHandler(c *gin.Context) {
 
 	// 构建token列表
 	var tokenList []TokenInfo
-	for _, key := range tokenKeys {
+	for _, key := range keys {
 		// 从key中提取token (格式: "token:{token}")
 		token := key[6:] // 去掉前缀 "token:"
 
 		// 获取对应的tenant_url
-		tenantURL, err := config.RDB.HGet(context.Background(), key, "tenant_url").Result()
+		tenantURL, err := config.RedisHGet(key, "tenant_url")
 		if err != nil {
 			continue // 跳过无效的token
 		}
@@ -66,30 +65,26 @@ func SaveTokenToRedis(token, tenantURL string) error {
 	tokenKey := "token:" + token
 
 	// 将tenant_url存储在token对应的哈希表中
-	if err := config.RDB.HSet(context.Background(), tokenKey, "tenant_url", tenantURL).Err(); err != nil {
-		return err
-	}
-
-	return nil
+	return config.RedisHSet(tokenKey, "tenant_url", tenantURL)
 }
 
 // GetRandomToken 从Redis中随机获取一个token
 func GetRandomToken() (string, string) {
 	// 获取所有token的key
-	tokenKeys, err := config.RDB.Keys(context.Background(), "token:*").Result()
-	if err != nil || len(tokenKeys) == 0 {
+	keys, err := config.RedisKeys("token:*")
+	if err != nil || len(keys) == 0 {
 		return "", ""
 	}
 
 	// 随机选择一个token
-	randomIndex := rand.Intn(len(tokenKeys))
-	randomKey := tokenKeys[randomIndex]
+	randomIndex := rand.Intn(len(keys))
+	randomKey := keys[randomIndex]
 
 	// 从key中提取token
 	token := randomKey[6:] // 去掉前缀 "token:"
 
 	// 获取对应的tenant_url
-	tenantURL, err := config.RDB.HGet(context.Background(), randomKey, "tenant_url").Result()
+	tenantURL, err := config.RedisHGet(randomKey, "tenant_url")
 	if err != nil {
 		return "", ""
 	}
@@ -111,7 +106,7 @@ func DeleteTokenHandler(c *gin.Context) {
 	tokenKey := "token:" + token
 
 	// 检查token是否存在
-	exists, err := config.RDB.Exists(context.Background(), tokenKey).Result()
+	exists, err := config.RedisExists(tokenKey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error",
@@ -120,7 +115,7 @@ func DeleteTokenHandler(c *gin.Context) {
 		return
 	}
 
-	if exists == 0 {
+	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{
 			"status": "error",
 			"error":  "token不存在",
@@ -129,7 +124,7 @@ func DeleteTokenHandler(c *gin.Context) {
 	}
 
 	// 删除token
-	if err := config.RDB.Del(context.Background(), tokenKey).Err(); err != nil {
+	if err := config.RedisDel(tokenKey); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error",
 			"error":  "删除token失败: " + err.Error(),
@@ -156,7 +151,7 @@ func UseTokenHandler(c *gin.Context) {
 	tokenKey := "token:" + token
 
 	// 检查token是否存在
-	exists, err := config.RDB.Exists(context.Background(), tokenKey).Result()
+	exists, err := config.RedisExists(tokenKey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error",
@@ -165,7 +160,7 @@ func UseTokenHandler(c *gin.Context) {
 		return
 	}
 
-	if exists == 0 {
+	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{
 			"status": "error",
 			"error":  "token不存在",

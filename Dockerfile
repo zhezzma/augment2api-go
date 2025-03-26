@@ -22,9 +22,6 @@ FROM alpine:latest
 # 安装 ca-certificates 以支持 HTTPS
 RUN apk --no-cache add ca-certificates tzdata
 
-# 设置时区为亚洲/上海
-ENV TZ=Asia/Shanghai
-
 # 创建非 root 用户
 RUN adduser -D -g '' appuser
 

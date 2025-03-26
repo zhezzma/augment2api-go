@@ -59,11 +59,6 @@ func RedisDel(key string) error {
 	return RDB.Del(ctx, key).Err()
 }
 
-func RedisDecrease(key string, value int64) error {
-	ctx := context.Background()
-	return RDB.DecrBy(ctx, key, value).Err()
-}
-
 // RedisHSet 设置哈希表字段值
 func RedisHSet(key, field, value string) error {
 	ctx := context.Background()
@@ -80,4 +75,20 @@ func RedisHGet(key, field string) (string, error) {
 func RedisExpire(key string, expiration time.Duration) error {
 	ctx := context.Background()
 	return RDB.Expire(ctx, key, expiration).Err()
+}
+
+// RedisKeys 获取匹配指定模式的所有键
+func RedisKeys(pattern string) ([]string, error) {
+	ctx := context.Background()
+	return RDB.Keys(ctx, pattern).Result()
+}
+
+// RedisExists 检查键是否存在
+func RedisExists(key string) (bool, error) {
+	ctx := context.Background()
+	result, err := RDB.Exists(ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	return result > 0, nil
 }
