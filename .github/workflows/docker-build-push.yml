@@ -28,7 +28,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      #  Docker 登录步骤
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -49,9 +48,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/augment2api
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/augment2api
           tags: |
+            type=semver,pattern={{version}}
             type=ref,event=tag
             type=raw,value=latest,enable=${{ github.ref_name == 'master' }}
             type=semver,pattern={{version}},prefix=v
@@ -62,26 +61,25 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          push: true  # 显式启用推送
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ github.ref_name }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-${{ matrix.platform }}
           build-args: |
             GO_VERSION=1.23
-            BUILD_DATE=${{ steps.meta.outputs.annotations }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
 
-      # 优化部署包生成逻辑
       - name: Generate deployment package
         if: ${{ matrix.platform == 'linux/amd64' && github.ref_name == 'master' }}
-        env:
-          IMAGE_TAG: ${{ steps.meta.outputs.tags }}
         run: |
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/augment2api:$IMAGE_TAG
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          docker pull ${IMAGE_TAG}
           mkdir -p deploy
-          docker save ${{ secrets.DOCKERHUB_USERNAME }}/augment2api:$IMAGE_TAG | gzip > deploy/augment2api-$(date +%s).tar.gz
+          docker save ${IMAGE_TAG} | gzip > deploy/augment2api-$(date +%s).tar.gz
 
       - name: Upload deployment package
+        if: ${{ matrix.platform == 'linux/amd64' && github.ref_name == 'master' }}
         uses: actions/upload-artifact@v4
         with:
           name: augment2api-${{ github.run_id }}
