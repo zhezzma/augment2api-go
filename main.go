@@ -208,5 +208,5 @@ func main() {
 	logger.Log.WithFields(map[string]interface{}{
 		"port": 27080,
 		"mode": gin.Mode(),
-	}).Info("API 服务启动成功")
+	}).Info("Augment2API 服务启动成功")
 }

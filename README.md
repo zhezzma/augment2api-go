@@ -29,7 +29,7 @@ docker run -d \
   -e REDIS_CONN_STRING="redis://default:yourpassword@your-redis-host:6379" \
   -e AUTH_TOKEN="your-auth-token" \
   --restart always \
-  linqiu1199/augment2api:latest
+  linqiu1199/augment2api:v0.0.2
 ```
 
 #### 使用 Docker Compose 运行
@@ -44,10 +44,13 @@ cd augment2api
 ```
 
 
-创建 `.env` 文件（可选，用于设置环境变量）：
+创建 `.env` 文件，填写下面两个环境变量：
 ```
-REDIS_PASSWORD=your-secure-password
-AUTH_TOKEN=your-secure-auth-token
+# 设置Redis密码
+REDIS_PASSWORD=your-redis-password
+
+# 设置api鉴权token
+AUTH_TOKEN=your-auth-token
 ```
 
 然后运行：
@@ -59,11 +62,10 @@ docker-compose up -d
 
 ### 2. 获取Token
 
-访问http://ip:27080/进入管理页面：
-
+访问 `http://ip:27080/` 进入管理页面
 1. 点击获取授权链接
 2. 复制授权链接到浏览器中打开
-3. 使用邮箱进行登录
+3. 使用邮箱进行登录（域名邮箱也可）
 4. 复制`augment code`到授权响应输入框中，点击获取token
 5. 开始对话测试
 
