@@ -7,8 +7,7 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 - 提供 OpenAI 兼容的 API 接口
 - 支持 Claude 3.7 模型
 - 支持流式/非流式输出 (Stream/Non-Stream)
-- 支持多 Token 管理和自动轮换
-- 提供简洁的管理界面
+- 支持简洁的多Token管理界面管理
 - 支持 Redis 存储 Token
 
 ## 环境变量配置
@@ -21,9 +20,42 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 ## 快速开始
 
 ### 1. 部署
-```bash
 
+#### 使用 Docker 运行
+```bash
+docker run -d \
+  --name augment2api \
+  -p 27080:27080 \
+  -e REDIS_CONN_STRING="redis://default:yourpassword@your-redis-host:6379" \
+  -e AUTH_TOKEN="your-auth-token" \
+  --restart always \
+  linqiu1199/augment2api:latest
 ```
+
+#### 使用 Docker Compose 运行
+拉取项目到本地
+```bash
+git clone https://github.com/linqiu1199/augment2api.git
+```
+
+进入项目目录
+```bash
+cd augment2api
+```
+
+
+创建 `.env` 文件（可选，用于设置环境变量）：
+```
+REDIS_PASSWORD=your-secure-password
+AUTH_TOKEN=your-secure-auth-token
+```
+
+然后运行：
+```bash
+docker-compose up -d
+```
+
+这将同时启动 Redis 和 Augment2Api 服务，并自动处理它们之间的网络连接。
 
 ### 2. 获取Token
 
@@ -33,7 +65,7 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 2. 复制授权链接到浏览器中打开
 3. 使用邮箱进行登录
 4. 复制`augment code`到授权响应输入框中，点击获取token
-5. 开始对话
+5. 开始对话测试
 
 
 ## API 使用
