@@ -50,7 +50,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            linqiu919/augment2api
+            linqiu1199/augment2api
             ghcr.io/${{ github.repository }}
 
       - name: Build and push Docker images
