@@ -4,6 +4,11 @@ on:
   push:
     branches: [ "master" ]
     tags: [ "v*.*.*" ]
+  workflow_dispatch:  # 添加手动触发选项
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build-push:
@@ -11,52 +16,73 @@ jobs:
     strategy:
       matrix:
         platform: [linux/amd64, linux/arm64, linux/arm/v7]
+        # 添加架构后缀映射
+        include:
+          - platform: linux/amd64
+            suffix: amd64
+          - platform: linux/arm64
+            suffix: arm64
+          - platform: linux/arm/v7
+            suffix: armv7
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整提交历史用于版本生成
 
-      # 多平台构建准备
-      - name: Set up QEMU
+      - name: Setup Docker environment
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:master
+            network=host
+
+      - name: Configure QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # 动态标签生成
-      - name: Generate image tags
+      - name: Generate metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/augment2api
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/augment2api
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=semver,pattern={{version}},prefix=v,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=${{ matrix.suffix }},enable=${{ contains(matrix.platform, 'arm') }}
+            type=raw,value=pr-${{ github.event.number }},enable=${{ github.event_name == 'pull_request' }}
+            type=raw,value=sha-${{ github.sha }},enable=${{ github.ref == 'refs/heads/master' }}
 
-      # 多平台构建 + 缓存优化
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}  # PR时不推送
           tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ github.ref }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ github.ref }}-${{ matrix.platform }}
           build-args: |
             GO_VERSION=1.23
+            BUILD_DATE=${{ steps.meta.outputs.annotations }}
 
-      # 生成单平台本地部署包（仅限 amd64）
-      - name: Export AMD64 image
-        if: ${{ matrix.platform == 'linux/amd64' && github.ref == 'refs/heads/main' }}
+      # 增强的部署包生成
+      - name: Generate deployment package
+        if: ${{ matrix.platform == 'linux/amd64' && github.ref == 'refs/heads/master' }}
         run: |
-          docker buildx build --platform=linux/amd64 --load -t ${{ secrets.DOCKERHUB_USERNAME }}/augment2api:local .
-          docker save -o augment2api.tar ${{ secrets.DOCKERHUB_USERNAME }}/augment2api:local
-          gzip augment2api.tar
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/augment2api:local .
+          
+          mkdir -p deploy
+          docker save ${{ secrets.DOCKERHUB_USERNAME }}/augment2api:local | gzip > deploy/augment2api-$(date +%Y%m%d%H%M).tar.gz
+          echo "DEPLOY_PKG=deploy/augment2api-$(date +%Y%m%d%H%M).tar.gz" >> $GITHUB_ENV
 
-      - name: Upload artifact
+      - name: Upload deployment package
         uses: actions/upload-artifact@v4
         with:
-          name: augment2api-amd64
-          path: augment2api.tar.gz
+          name: augment2api-deployment
+          path: ${{ env.DEPLOY_PKG }}
+          retention-days: 7  # 自动清理旧包
