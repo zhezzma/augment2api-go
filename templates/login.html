@@ -172,7 +172,7 @@
                     if (data.status === 'success') {
                         // 登录成功，保存会话到Cookie并跳转到管理页面
                         // 设置安全的Cookie，确保路径正确
-                        document.cookie = "auth_token=" + data.token + "; path=/; max-age=86400; Secure; SameSite=Strict";
+                        document.cookie = "auth_token=" + data.token + "; path=/; max-age=86400;";
                         console.log("设置Cookie成功: auth_token=" + data.token);
 
                         setTimeout(() => {
