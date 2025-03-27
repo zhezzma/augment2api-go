@@ -15,12 +15,17 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 
 ## 环境变量配置
 
-| 环境变量 | 说明 | 是否必填 | 示例 |
-|---------|------|------|------|
-| REDIS_CONN_STRING | Redis 连接字符串 | 是    | `redis://default:password@localhost:6379` |
-| ACCESS_PWD | 管理面板访问密码 | 是    | `your-access-password` |
-| AUTH_TOKEN | API 访问认证 Token | 否    | `your-auth-token` |
-| ROUTE_PREFIX | API 请求前缀 | 否    | `your_api_prefix` |
+| 环境变量 | 说明             | 是否必填 | 示例                                        |
+|---------|----------------|------|-------------------------------------------|
+| REDIS_CONN_STRING | Redis 连接字符串    | 是    | `redis://default:password@localhost:6379` |
+| ACCESS_PWD | 管理面板访问密码       | 是    | `your-access-password`                    |
+| AUTH_TOKEN | API 访问认证 Token | 否    | `your-auth-token`                         |
+| ROUTE_PREFIX | API 请求前缀       | 否    | `your_api_prefix`                         |
+| CODING_MODE | 调试模式开关         | 否    | `false`                                   |
+| CODING_TOKEN | 调试使用Token      | 否    | `空`                                       |
+| TENANT_URL | 调试使用租户地址       | 否    | `空`                                       |
+
+提示：如果页面获取Token失败，可以配置`CODING_MODE`为true,同时配置`CODING_TOKEN`和`TENANT_URL`即可使用指定Token和租户地址，仅限单个Token
 
 
 # TODO
