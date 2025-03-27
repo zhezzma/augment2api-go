@@ -17,6 +17,7 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 | REDIS_CONN_STRING | Redis 连接字符串 | 是    | `redis://default:password@localhost:6379` |
 | ACCESS_PWD | 管理面板访问密码 | 是    | `your-access-password` |
 | AUTH_TOKEN | API 访问认证 Token | 否    | `your-auth-token` |
+| ROUTE_PREFIX | API 请求前缀 | 否    | `your_api_prefix` |
 
 
 # TODO
