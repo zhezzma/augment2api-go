@@ -2,6 +2,9 @@
 
 Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI 兼容的接口，支持 Claude 3.7 模型的调用。
 
+# 问题反馈
+🐞 <a href="https://t.me/+AfGumJADbLYzYzE1" style="font-size: 15px;">Telegram交流群</a>
+
 ## 功能特点
 
 - 提供 OpenAI 兼容的 API 接口
@@ -104,4 +107,15 @@ curl -X POST http://localhost:27080/v1/chat/completions \
 
 ## 管理界面
 
-访问 `http://localhost:27080/` 可以打开管理界面，交互式获取、管理Token。
+访问 `http://localhost:27080/` 可以打开管理界面登录页面，登录之后即可交互式获取、管理Token。
+
+
+## Star History
+
+<a href="https://www.star-history.com/#linqiu919/augment2api&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=linqiu919/augment2api&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=linqiu919/augment2api&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=linqiu919/augment2api&type=Date" />
+ </picture>
+</a>
