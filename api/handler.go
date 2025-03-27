@@ -3,15 +3,18 @@ package api
 import (
 	"augment2api/config"
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // OpenAIRequest OpenAI兼容的请求结构
@@ -87,16 +90,62 @@ type Usage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+// ToolDefinition 工具定义结构
+type ToolDefinition struct {
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	InputSchemaJSON string `json:"input_schema_json"`
+	ToolSafety      int    `json:"tool_safety"`
+}
+
+// Node 节点结构
+type Node struct {
+	ID          int         `json:"id"`
+	Type        int         `json:"type"`
+	Content     string      `json:"content"`
+	ToolUse     ToolUse     `json:"tool_use"`
+	AgentMemory AgentMemory `json:"agent_memory"`
+}
+
+type ToolUse struct {
+	ToolUseID string `json:"tool_use_id"`
+	ToolName  string `json:"tool_name"`
+	InputJSON string `json:"input_json"`
+}
+
+type AgentMemory struct {
+	Content string `json:"content"`
+}
+
 // AugmentRequest Augment API请求结构
 type AugmentRequest struct {
 	ChatHistory []AugmentChatHistory `json:"chat_history"`
 	Message     string               `json:"message"`
 	Mode        string               `json:"mode"`
+	Prefix      string               `json:"prefix"`
+	Suffix      string               `json:"suffix"`
+	Lang        string               `json:"lang"`
+	Path        string               `json:"path"`
+	Blobs       struct {
+		CheckpointID string        `json:"checkpoint_id"`
+		AddedBlobs   []interface{} `json:"added_blobs"`
+		DeletedBlobs []interface{} `json:"deleted_blobs"`
+	} `json:"blobs"`
+	UserGuidedBlobs       []interface{} `json:"user_guided_blobs"`
+	ExternalSourceIds     []interface{} `json:"external_source_ids"`
+	FeatureDetectionFlags struct {
+		SupportRawOutput bool `json:"support_raw_output"`
+	} `json:"feature_detection_flags"`
+	ToolDefinitions []ToolDefinition `json:"tool_definitions"`
+	Nodes           []Node           `json:"nodes"`
 }
 
 type AugmentChatHistory struct {
 	ResponseText   string `json:"response_text"`
 	RequestMessage string `json:"request_message"`
+	RequestID      string `json:"request_id"`
+	RequestNodes   []Node `json:"request_nodes"`
+	ResponseNodes  []Node `json:"response_nodes"`
 }
 
 // AugmentResponse Augment API响应结构
@@ -155,29 +204,376 @@ func GetAuthInfo() (string, string) {
 	return accessToken, tenantURL
 }
 
+const (
+	// 默认提示，不加这个会导致Agent触发文件创建，回复截断
+	defaultPrompt = "All replies cannot create, modify, or delete files, and must provide content directly!"
+	// 默认上下文，影响模型回复风格
+	defaultPrefix = "You are AI assistant,help me to solve problems!"
+)
+
+// generateCheckpointID 生成一个基于时间戳的SHA-256哈希值作为CheckpointID
+func generateCheckpointID() string {
+	// 使用当前时间戳作为输入
+	timestamp := fmt.Sprintf("%d", time.Now().UnixNano())
+	hash := sha256.New()
+	hash.Write([]byte(timestamp))
+	// 将哈希值转换为十六进制字符串
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+// generatePath 生成一个随机文件路径（暂时无用）
+func generatePath() string {
+	extensions := []string{".txt", ".md", ".go", ".py", ".js", ".html", ".css"}
+	dirs := []string{"src", "docs", "test", "lib", "utils"}
+	dir := dirs[rand.Intn(len(dirs))]
+	ext := extensions[rand.Intn(len(extensions))]
+	filename := fmt.Sprintf("%x", rand.Int31())
+	return fmt.Sprintf("%s/%s%s", dir, filename, ext)
+}
+
 // convertToAugmentRequest 将OpenAI请求转换为Augment请求
 func convertToAugmentRequest(req OpenAIRequest) AugmentRequest {
 	augmentReq := AugmentRequest{
-		Mode: "CHAT",
+		Path:    "",                  // 这个是关联的项目文件路径，暂时传空，不影响对话
+		Mode:    "AGENT",             // 固定为Agent模式，CHAT模式大概率会使用垃圾模型回复
+		Prefix:  defaultPrefix,       // 固定前缀，影响模型回复风格
+		Suffix:  " ",                 // 固定后缀，暂时传空，不影响对话
+		Lang:    detectLanguage(req), // 简单检测当前对话语言类型，不传好像回答有问题
+		Message: "",                  // 当前对话消息
+		// 初始化为空列表
+		ChatHistory: make([]AugmentChatHistory, 0),
+		Blobs: struct {
+			CheckpointID string        `json:"checkpoint_id"`
+			AddedBlobs   []interface{} `json:"added_blobs"`
+			DeletedBlobs []interface{} `json:"deleted_blobs"`
+		}{
+			CheckpointID: generateCheckpointID(),
+			AddedBlobs:   make([]interface{}, 0),
+			DeletedBlobs: make([]interface{}, 0),
+		},
+		UserGuidedBlobs:   make([]interface{}, 0),
+		ExternalSourceIds: make([]interface{}, 0),
+		FeatureDetectionFlags: struct {
+			SupportRawOutput bool `json:"support_raw_output"`
+		}{
+			SupportRawOutput: true,
+		},
+		ToolDefinitions: getFullToolDefinitions(), // 官方固定工具定义
+		Nodes:           make([]Node, 0),
 	}
 
-	if len(req.Messages) > 0 {
-		lastMsg := req.Messages[len(req.Messages)-1]
-		augmentReq.Message = lastMsg.GetContent()
-	}
+	// 处理消息历史
+	if len(req.Messages) > 1 { // 有历史消息
+		// 每次处理一对消息（用户问题和助手回答）
+		for i := 0; i < len(req.Messages)-1; i += 2 {
+			if i+1 < len(req.Messages) {
+				userMsg := req.Messages[i]
+				assistantMsg := req.Messages[i+1]
 
-	var history []AugmentChatHistory
-	for i := 0; i < len(req.Messages)-1; i += 2 {
-		if i+1 < len(req.Messages) {
-			history = append(history, AugmentChatHistory{
-				RequestMessage: req.Messages[i].GetContent(),
-				ResponseText:   req.Messages[i+1].GetContent(),
-			})
+				chatHistory := AugmentChatHistory{
+					RequestMessage: userMsg.GetContent(),
+					ResponseText:   assistantMsg.GetContent(),
+					RequestID:      generateRequestID(), // 生成唯一的请求ID
+					RequestNodes:   make([]Node, 0),
+					ResponseNodes: []Node{
+						{
+							ID:      0,
+							Type:    0,
+							Content: assistantMsg.GetContent(),
+							ToolUse: ToolUse{
+								ToolUseID: "",
+								ToolName:  "",
+								InputJSON: "",
+							},
+							AgentMemory: AgentMemory{
+								Content: "",
+							},
+						},
+					},
+				}
+				augmentReq.ChatHistory = append(augmentReq.ChatHistory, chatHistory)
+			}
 		}
 	}
 
-	augmentReq.ChatHistory = history
+	// 设置当前消息
+	if len(req.Messages) > 0 {
+		lastMsg := req.Messages[len(req.Messages)-1]
+		augmentReq.Message = defaultPrompt + "\n" + lastMsg.GetContent()
+	}
+
 	return augmentReq
+}
+
+// generateRequestID 生成唯一的请求ID
+func generateRequestID() string {
+	// 使用UUID v4生成唯一ID
+	return uuid.New().String()
+}
+
+// detectLanguage 检测编程语言
+func detectLanguage(req OpenAIRequest) string {
+	if len(req.Messages) == 0 {
+		return ""
+	}
+
+	content := req.Messages[len(req.Messages)-1].GetContent()
+	// 简单判断一下当前对话语言类型
+	if strings.Contains(strings.ToLower(content), "html") {
+		return "HTML"
+	} else if strings.Contains(strings.ToLower(content), "python") {
+		return "Python"
+	} else if strings.Contains(strings.ToLower(content), "javascript") {
+		return "JavaScript"
+	} else if strings.Contains(strings.ToLower(content), "go") {
+		return "Go"
+	} else if strings.Contains(strings.ToLower(content), "rust") {
+		return "Rust"
+	} else if strings.Contains(strings.ToLower(content), "java") {
+		return "Java"
+	} else if strings.Contains(strings.ToLower(content), "c++") {
+		return "C++"
+	} else if strings.Contains(strings.ToLower(content), "c#") {
+		return "C#"
+	} else if strings.Contains(strings.ToLower(content), "php") {
+		return "PHP"
+	} else if strings.Contains(strings.ToLower(content), "ruby") {
+		return "Ruby"
+	} else if strings.Contains(strings.ToLower(content), "swift") {
+		return "Swift"
+	} else if strings.Contains(strings.ToLower(content), "kotlin") {
+		return "Kotlin"
+	} else if strings.Contains(strings.ToLower(content), "typescript") {
+		return "TypeScript"
+	} else if strings.Contains(strings.ToLower(content), "c") {
+		return "C"
+	}
+	return "HTML"
+}
+
+// getFullToolDefinitions 返回官方定义的完整工具定义列表
+// TODO 验证实际作用
+func getFullToolDefinitions() []ToolDefinition {
+	return []ToolDefinition{
+		{
+			Name:        "web-search",
+			Description: "Search the web for information. Returns results in markdown format.\nEach result includes the URL, title, and a snippet from the page if available.\n\nThis tool uses Google's Custom Search API to find relevant web pages.",
+			InputSchemaJSON: `{
+				"description": "Input schema for the web search tool.",
+				"properties": {
+					"query": {
+						"description": "The search query to send.",
+						"title": "Query",
+						"type": "string"
+					},
+					"num_results": {
+						"default": 5,
+						"description": "Number of results to return",
+						"maximum": 10,
+						"minimum": 1,
+						"title": "Num Results",
+						"type": "integer"
+					}
+				},
+				"required": ["query"],
+				"title": "WebSearchInput",
+				"type": "object"
+			}`,
+			ToolSafety: 0,
+		},
+		{
+			Name:        "web-fetch",
+			Description: "Fetches data from a webpage and converts it into Markdown.\n\n1. The tool takes in a URL and returns the content of the page in Markdown format;\n2. If the return is not valid Markdown, it means the tool cannot successfully parse this page.",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"url": {
+						"type": "string",
+						"description": "The URL to fetch."
+					}
+				},
+				"required": ["url"]
+			}`,
+			ToolSafety: 0,
+		},
+		{
+			Name:        "codebase-retrieval",
+			Description: "This tool is Augment's context engine, the world's best codebase context engine. It:\n1. Takes in a natural language description of the code you are looking for;\n2. Uses a proprietary retrieval/embedding model suite that produces the highest-quality recall of relevant code snippets from across the codebase;\n3. Maintains a real-time index of the codebase, so the results are always up-to-date and reflects the current state of the codebase;\n4. Can retrieve across different programming languages;\n5. Only reflects the current state of the codebase on the disk, and has no information on version control or code history.",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"information_request": {
+						"type": "string",
+						"description": "A description of the information you need."
+					}
+				},
+				"required": ["information_request"]
+			}`,
+			ToolSafety: 1,
+		},
+		{
+			Name:        "shell",
+			Description: "Execute a shell command.\n\n- You can use this tool to interact with the user's local version control system. Do not use the\nretrieval tool for that purpose.\n- If there is a more specific tool available that can perform the function, use that tool instead of\nthis one.\n\nThe OS is darwin. The shell is 'bash'.",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string",
+						"description": "The shell command to execute."
+					}
+				},
+				"required": ["command"]
+			}`,
+			ToolSafety: 2,
+		},
+		{
+			Name:        "str-replace-editor",
+			Description: "Custom editing tool for viewing, creating and editing files\n* `path` is a file path relative to the workspace root\n* command `view` displays the result of applying `cat -n`.\n* If a `command` generates a long output, it will be truncated and marked with `<response clipped>`\n* `insert` and `str_replace` commands output a snippet of the edited section for each entry. This snippet reflects the final state of the file after all edits and IDE auto-formatting have been applied.\n\n\nNotes for using the `str_replace` command:\n* Use the `str_replace_entries` parameter with an array of objects\n* Each object should have `old_str`, `new_str`, `old_str_start_line_number` and `old_str_end_line_number` properties\n* The `old_str_start_line_number` and `old_str_end_line_number` parameters are 1-based line numbers\n* Both `old_str_start_line_number` and `old_str_end_line_number` are INCLUSIVE\n* The `old_str` parameter should match EXACTLY one or more consecutive lines from the original file. Be mindful of whitespace!\n* Empty `old_str` is allowed only when the file is empty or contains only whitespaces\n* It is important to specify `old_str_start_line_number` and `old_str_end_line_number` to disambiguate between multiple occurrences of `old_str` in the file\n* Make sure that `old_str_start_line_number` and `old_str_end_line_number` do not overlap with other entries in `str_replace_entries`\n* The `new_str` parameter should contain the edited lines that should replace the `old_str`. Can be an empty string to delete content\n\nNotes for using the `insert` command:\n* Use the `insert_line_entries` parameter with an array of objects\n* Each object should have `insert_line` and `new_str` properties\n* The `insert_line` parameter specifies the line number after which to insert the new string\n* The `insert_line` parameter is 1-based line number\n* To insert at the very beginning of the file, use `insert_line: 0`\n\nNotes for using the `view` command:\n* Strongly prefer to use larger ranges of at least 1000 lines when scanning through files. One call with large range is much more efficient than many calls with small ranges\n* Prefer to use grep instead of view when looking for a specific symbol in the file\n\nIMPORTANT:\n* This is the only tool you should use for editing files.\n* If it fails try your best to fix inputs and retry.\n* DO NOT fall back to removing the whole file and recreating it from scratch.\n* DO NOT use sed or any other command line tools for editing files.\n* Try to fit as many edits in one tool call as possible\n* Use view command to read the file before editing it.\n",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string",
+						"enum": ["view", "str_replace", "insert"],
+						"description": "The commands to run. Allowed options are: 'view', 'str_replace', 'insert'."
+					},
+					"path": {
+						"description": "Full path to file relative to the workspace root, e.g. 'services/api_proxy/file.py' or 'services/api_proxy'.",
+						"type": "string"
+					},
+					"view_range": {
+						"description": "Optional parameter of 'view' command when 'path' points to a file. If none is given, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting '[start_line, -1]' shows all lines from 'start_line' to the end of the file.",
+						"type": "array",
+						"items": {
+							"type": "integer"
+						}
+					},
+					"insert_line_entries": {
+						"description": "Required parameter of 'insert' command. A list of entries to insert. Each entry is a dictionary with keys 'insert_line' and 'new_str'.",
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"insert_line": {
+									"description": "The line number after which to insert the new string. This line number is relative to the state of the file before any insertions in the current tool call have been applied.",
+									"type": "integer"
+								},
+								"new_str": {
+									"description": "The string to insert. Can be an empty string.",
+									"type": "string"
+								}
+							},
+							"required": ["insert_line", "new_str"]
+						}
+					},
+					"str_replace_entries": {
+						"description": "Required parameter of 'str_replace' command. A list of entries to replace. Each entry is a dictionary with keys 'old_str', 'old_str_start_line_number', 'old_str_end_line_number' and 'new_str'. 'old_str' from different entries should not overlap.",
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"old_str": {
+									"description": "The string in 'path' to replace.",
+									"type": "string"
+								},
+								"old_str_start_line_number": {
+									"description": "The line number of the first line of 'old_str' in the file. This is used to disambiguate between multiple occurrences of 'old_str' in the file.",
+									"type": "integer"
+								},
+								"old_str_end_line_number": {
+									"description": "The line number of the last line of 'old_str' in the file. This is used to disambiguate between multiple occurrences of 'old_str' in the file.",
+									"type": "integer"
+								},
+								"new_str": {
+									"description": "The string to replace 'old_str' with. Can be an empty string to delete content.",
+									"type": "string"
+								}
+							},
+							"required": ["old_str", "new_str", "old_str_start_line_number", "old_str_end_line_number"]
+						}
+					}
+				},
+				"required": ["command", "path"]
+			}`,
+			ToolSafety: 1,
+		},
+		{
+			Name:        "save-file",
+			Description: "Save a file.",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "The path of the file to save."
+					},
+					"file_content": {
+						"type": "string",
+						"description": "The content of the file to save."
+					},
+					"add_last_line_newline": {
+						"type": "boolean",
+						"description": "Whether to add a newline at the end of the file (default: true)."
+					}
+				},
+				"required": ["file_path", "file_content"]
+			}`,
+			ToolSafety: 1,
+		},
+		{
+			Name:        "launch-process",
+			Description: "Launch a new process.\nIf wait is specified, waits up to that many seconds for the process to complete.\nIf the process completes within wait seconds, returns its output.\nIf it doesn't complete within wait seconds, returns partial output and process ID.\nIf wait is not specified, returns immediately with just the process ID.\nThe process's stdin is always enbled, so you can use write_process to send input if needed.",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string",
+						"description": "The shell command to execute"
+					},
+					"wait": {
+						"type": "number",
+						"description": "Optional: number of seconds to wait for the command to complete."
+					},
+					"cwd": {
+						"type": "string",
+						"description": "Working directory for the command. If not supplied, uses the current working directory."
+					}
+				},
+				"required": ["command"]
+			}`,
+			ToolSafety: 2,
+		},
+		{
+			Name:        "read-process",
+			Description: "Read output from a terminal.",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"terminal_id": {
+						"type": "number",
+						"description": "Terminal ID to read from."
+					}
+				},
+				"required": ["terminal_id"]
+			}`,
+			ToolSafety: 1,
+		},
+		{
+			Name:        "kill-process",
+			Description: "Kill a process by its terminal ID.",
+			InputSchemaJSON: `{
+				"type": "object",
+				"properties": {
+					"terminal_id": {
+						"type": "number",
+						"description": "Terminal ID to kill."
+					}
+				},
+				"required": ["terminal_id"]
+			}`,
+			ToolSafety: 1,
+		},
+	}
 }
 
 // AuthHandler 处理授权请求
@@ -221,7 +617,7 @@ func CallbackHandler(c *gin.Context, getAccessTokenFunc func(string, string, str
 
 // ModelsHandler 处理模型请求
 func ModelsHandler(c *gin.Context) {
-	// 创建符合OpenAI格式的模型列表响应
+	// 这里直接返回写死的模型
 	response := ModelsResponse{
 		Object: "list",
 		Data: []ModelObject{
@@ -290,6 +686,9 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 
+	// 打印请求参数
+	//log.Printf("对话请求参数: %s", string(jsonData))
+
 	// 创建请求 - 使用获取到的tenant_url
 	req, err := http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
 	if err != nil {
@@ -308,6 +707,17 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 	defer resp.Body.Close()
+
+	// 检查响应状态码
+	if resp.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(resp.Body)
+		errMsg := "Augment response error"
+		if err == nil {
+			errMsg = errMsg + ": " + string(body)
+		}
+		c.JSON(resp.StatusCode, gin.H{"error": errMsg})
+		return
+	}
 
 	// 设置刷新器以确保数据立即发送
 	flusher, ok := c.Writer.(http.Flusher)
@@ -424,6 +834,9 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 		return
 	}
 
+	// 打印请求参数
+	//log.Printf("发送到远程接口的请求参数: %s", string(jsonData))
+
 	// 创建请求 - 使用获取到的tenant_url
 	req, err := http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
 	if err != nil {
@@ -432,7 +845,8 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token) // 使用获取到的token
+	// 使用获取到的token
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	// 发送请求
 	client := &http.Client{}
@@ -442,6 +856,17 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 		return
 	}
 	defer resp.Body.Close()
+
+	// 检查响应状态码
+	if resp.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(resp.Body)
+		errMsg := "Augment response error"
+		if err == nil {
+			errMsg = errMsg + ": " + string(body)
+		}
+		c.JSON(resp.StatusCode, gin.H{"error": errMsg})
+		return
+	}
 
 	// 读取完整响应
 	reader := bufio.NewReader(resp.Body)

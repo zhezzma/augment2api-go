@@ -11,6 +11,7 @@ type Config struct {
 	CodingMode      string
 	CodingToken     string
 	TenantURL       string
+	AccessPwd       string
 	RoutePrefix     string
 }
 
@@ -26,6 +27,7 @@ func InitConfig() error {
 		CodingMode:  getEnv("CODING_MODE", "false"),
 		CodingToken: getEnv("CODING_TOKEN", ""),
 		TenantURL:   getEnv("TENANT_URL", ""),
+		AccessPwd:   getEnv("ACCESS_PWD", ""),
 		RoutePrefix: getEnv("ROUTE_PREFIX", ""), // 自定义openai接口路由前缀
 	}
 
@@ -34,9 +36,15 @@ func InitConfig() error {
 		logger.Log.Fatalln("未配置环境变量 REDIS_CONN_STRING")
 	}
 
+	// 为了安全，必须配置访问密码
+	if AppConfig.AccessPwd == "" {
+		logger.Log.Fatalln("未配置环境变量 ACCESS_PWD")
+	}
+
 	logger.Log.Info("Augment2Api配置加载完成:\n" +
 		"----------------------------------------\n" +
 		"AuthToken:    " + AppConfig.AuthToken + "\n" +
+		"AccessPwd:    " + AppConfig.AccessPwd + "\n" +
 		"RedisConnString: " + AppConfig.RedisConnString + "\n" +
 		"----------------------------------------")
 

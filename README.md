@@ -13,12 +13,14 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 ## 环境变量配置
 
 | 环境变量 | 说明 | 是否必填 | 示例 |
-|---------|------|---------|------|
-| REDIS_CONN_STRING | Redis 连接字符串 | 是 | `redis://default:password@localhost:6379` |
-| AUTH_TOKEN | API 访问认证 Token | 否 | `your-auth-token` |
+|---------|------|------|------|
+| REDIS_CONN_STRING | Redis 连接字符串 | 是    | `redis://default:password@localhost:6379` |
+| ACCESS_PWD | 管理面板访问密码 | 是    | `your-access-password` |
+| AUTH_TOKEN | API 访问认证 Token | 否    | `your-auth-token` |
+
 
 # TODO
-- [ ] 面板增加访问密码
+- [x] 面板增加访问密码
 - [ ] 面板增加Token使用次数
 
 ## 快速开始
@@ -50,11 +52,15 @@ cd augment2api
 
 创建 `.env` 文件，填写下面两个环境变量：
 ```
-# 设置Redis密码
+# 设置Redis密码 必填
 REDIS_PASSWORD=your-redis-password
 
-# 设置api鉴权token
+# 设置面板访问密码 必填
+ACCESS_PWD=your-access-password
+
+# 设置api鉴权token 非必填
 AUTH_TOKEN=your-auth-token
+
 ```
 
 然后运行：

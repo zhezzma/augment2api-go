@@ -136,24 +136,58 @@ func setupRouter() *gin.Engine {
 	r.Static("/static", "./static")
 	r.LoadHTMLGlob("templates/*")
 
+	// 登录页面
+	r.GET("/login", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "login.html", gin.H{})
+	})
+
+	// 登录API
+	r.POST("/api/login", api.LoginHandler)
+
+	// 管理页面 - 需要会话验证
 	r.GET("/", func(c *gin.Context) {
+		// 如果设置了访问密码，检查是否已登录
+		if config.AppConfig.AccessPwd != "" {
+			// 从查询参数或Cookie中获取会话令牌
+			token := c.Query("token")
+			if token == "" {
+				// 尝试从Cookie获取
+				token, _ = c.Cookie("auth_token")
+			}
+
+			// 从请求头获取
+			if token == "" {
+				token = c.GetHeader("X-Auth-Token")
+			}
+
+			// 验证会话令牌
+			if !api.ValidateToken(token) {
+				c.Redirect(http.StatusFound, "/login")
+				return
+			}
+		}
 		c.HTML(http.StatusOK, "admin.html", gin.H{})
 	})
 
-	// 授权端点
-	r.GET("/auth", func(c *gin.Context) {
+	// 管理页面 - 需要会话验证
+	r.GET("/admin", api.AuthTokenMiddleware(), func(c *gin.Context) {
+		c.HTML(http.StatusOK, "admin.html", gin.H{})
+	})
+
+	// 授权端点 - 需要会话验证
+	r.GET("/auth", api.AuthTokenMiddleware(), func(c *gin.Context) {
 		authorizeURL := generateAuthorizeURL(globalOAuthState)
 		api.AuthHandler(c, authorizeURL)
 	})
 
-	// 获取token
-	r.GET("/api/tokens", api.GetRedisTokenHandler)
+	// 获取token - 需要会话验证
+	r.GET("/api/tokens", api.AuthTokenMiddleware(), api.GetRedisTokenHandler)
 
-	// 删除token
-	r.DELETE("/api/token/:token", api.DeleteTokenHandler)
+	// 删除token - 需要会话验证
+	r.DELETE("/api/token/:token", api.AuthTokenMiddleware(), api.DeleteTokenHandler)
 
-	// 回调端点，用于处理授权码
-	r.POST("/callback", func(c *gin.Context) {
+	// 回调端点，用于处理授权码 - 需要会话验证
+	r.POST("/callback", api.AuthTokenMiddleware(), func(c *gin.Context) {
 		api.CallbackHandler(c, func(tenantURL, _, code string) (string, error) {
 			return getAccessToken(tenantURL, globalOAuthState.CodeVerifier, code)
 		})

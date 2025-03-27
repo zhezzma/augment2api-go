@@ -438,7 +438,7 @@
                         <p>完成授权后，将获得的授权响应粘贴到下面的文本框中：</p>
                         <textarea id="auth-response" placeholder='{"code":"_000baec407c57c4bf9xxxxxxxxxxxxxx","state":"0uXxxxxxxxx","tenant_url":"https://d20.api.augmentcode.com/"}'></textarea>
                         <div id="validation-message" class="error"></div>
-                        <button id="submit-auth"><i class="bi bi-check2-circle" class="btn-icon"></i> <span class="btn-text">获取Token</span></button>
+                        <button id="submit-auth"><i class="bi bi-check2-circle" class="btn-text"></i> <span class="btn-text">获取Token</span></button>
                         <div id="submit-result" class="success"></div>
                     </div>
                 </div>
@@ -452,6 +452,57 @@
     </div>
 
     <script>
+        // 检查会话是否有效
+        function checkSession() {
+            // 从Cookie中获取token
+            const cookies = document.cookie.split(';');
+            let token = null;
+            
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.startsWith('auth_token=')) {
+                    token = cookie.substring('auth_token='.length);
+                    break;
+                }
+            }
+            
+            if (!token) {
+                window.location.href = '/login';
+                return false;
+            }
+            
+            // 将token添加到所有API请求中
+            return token;
+        }
+
+        // 页面加载时检查会话
+        const authToken = checkSession();
+        if (!authToken) {
+            // 如果没有有效会话，不继续执行后续代码
+            throw new Error('No valid session');
+        }
+
+        // 为所有fetch请求添加认证头
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options = {}) {
+            // 创建新的options对象，避免修改原始对象
+            const newOptions = { ...options };
+            
+            // 确保headers对象存在
+            newOptions.headers = newOptions.headers || {};
+            
+            // 如果是对象形式，转换为Headers对象
+            if (!(newOptions.headers instanceof Headers)) {
+                const headers = new Headers(newOptions.headers);
+                headers.append('X-Auth-Token', authToken);
+                newOptions.headers = headers;
+            } else {
+                newOptions.headers.append('X-Auth-Token', authToken);
+            }
+            
+            return originalFetch(url, newOptions);
+        };
+
         document.addEventListener('DOMContentLoaded', function() {
             // 获取当前Token列表
             function fetchCurrentToken() {
