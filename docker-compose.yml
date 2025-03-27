@@ -23,6 +23,7 @@ services:
       - "27080:27080"
     environment:
       - REDIS_CONN_STRING=redis://default:${REDIS_PASSWORD:-yourpassword}@redis:6379
+      - ACCESS_PWD=${ACCESS_PWD:-your-access-password}
       - AUTH_TOKEN=${AUTH_TOKEN:-your-auth-token}
       - TZ=Asia/Shanghai
     depends_on:

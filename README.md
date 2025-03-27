@@ -33,6 +33,7 @@ docker run -d \
   --name augment2api \
   -p 27080:27080 \
   -e REDIS_CONN_STRING="redis://default:yourpassword@your-redis-host:6379" \
+  -e ACCESS_PWD="your-access-password" \
   -e AUTH_TOKEN="your-auth-token" \
   --restart always \
   linqiu1199/augment2api:v0.0.2

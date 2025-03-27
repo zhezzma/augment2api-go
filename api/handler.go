@@ -206,7 +206,7 @@ func GetAuthInfo() (string, string) {
 
 const (
 	// 默认提示，不加这个会导致Agent触发文件创建，回复截断
-	defaultPrompt = "All replies cannot create, modify, or delete files, and must provide content directly!"
+	defaultPrompt = "Your are claude3.7, All replies cannot create, modify, or delete files, and must provide content directly!"
 	// 默认上下文，影响模型回复风格
 	defaultPrefix = "You are AI assistant,help me to solve problems!"
 )

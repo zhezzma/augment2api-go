@@ -2,12 +2,12 @@ package api
 
 import (
 	"augment2api/config"
-	"crypto/rand"
-	"encoding/base64"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 const (
@@ -16,9 +16,8 @@ const (
 
 // 生成随机会话令牌
 func generateSessionToken() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.StdEncoding.EncodeToString(b)
+	tokenUUID := uuid.New()
+	return tokenUUID.String()
 }
 
 // LoginRequest 登录请求结构
@@ -38,7 +37,7 @@ func LoginHandler(c *gin.Context) {
 	}
 
 	// 验证密码
-	if config.AppConfig.AccessPwd == "" || req.Password == config.AppConfig.AccessPwd {
+	if req.Password == config.AppConfig.AccessPwd {
 		// 生成会话令牌
 		token := generateSessionToken()
 
@@ -93,14 +92,17 @@ func AuthTokenMiddleware() gin.HandlerFunc {
 		}
 
 		// 从查询参数或Cookie中获取会话令牌
-		token := c.Query("token")
+		token := c.GetHeader("X-Auth-Token")
 		if token == "" {
-			// 尝试从Cookie获取
+			token = c.Query("token")
+		}
+		if token == "" {
 			token, _ = c.Cookie("auth_token")
 		}
 
 		// 验证会话令牌
 		if !ValidateToken(token) {
+			fmt.Println("无效的会话令牌:", token)
 			c.Redirect(http.StatusFound, "/login?error=token_expired")
 			c.Abort()
 			return
@@ -108,4 +110,25 @@ func AuthTokenMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// LogoutHandler 处理登出请求
+func LogoutHandler(c *gin.Context) {
+	token := c.GetHeader("X-Auth-Token")
+	if token != "" {
+		// 从Redis中删除会话token
+		tokenKey := TokenKey + token
+		err := config.RedisDel(tokenKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": "error",
+				"error":  "删除会话失败: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+	})
 }

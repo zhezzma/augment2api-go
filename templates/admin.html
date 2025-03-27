@@ -396,6 +396,31 @@
             color: var(--secondary-color);
             text-decoration: underline;
         }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+        
+        .logout-btn {
+            background: var(--error-color);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: background 0.3s;
+        }
+        
+        .logout-btn:hover {
+            background: #d32f2f;
+        }
     </style>
     <!-- 添加图标 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
@@ -403,7 +428,12 @@
 <body>
     <div class="container">
         <header>
-            <h1>Augment面板</h1>
+            <div class="header-content">
+                <h1>Augment面板</h1>
+                <button id="logout-btn" class="logout-btn">
+                    <i class="bi bi-box-arrow-right"></i> 登出
+                </button>
+            </div>
         </header>
 
         <div class="dashboard">
@@ -705,6 +735,32 @@
             
             // 初始加载
             fetchCurrentToken();
+
+            // 添加登出处理逻辑
+            document.getElementById('logout-btn').addEventListener('click', function() {
+                if(confirm('确定要登出吗？')) {
+                    fetch('/api/logout', {
+                        method: 'POST',
+                        headers: {
+                            'X-Auth-Token': authToken
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if(data.status === 'success') {
+                            // 清除Cookie
+                            document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+                            // 重定向到登录页
+                            window.location.href = '/login';
+                        } else {
+                            alert('登出失败: ' + (data.error || '未知错误'));
+                        }
+                    })
+                    .catch(error => {
+                        alert('登出请求失败: ' + error.message);
+                    });
+                }
+            });
         });
     </script>
 </body>

@@ -141,8 +141,11 @@ func setupRouter() *gin.Engine {
 		c.HTML(http.StatusOK, "login.html", gin.H{})
 	})
 
-	// 登录API
+	// 登录
 	r.POST("/api/login", api.LoginHandler)
+
+	// 登出
+	r.POST("/api/logout", api.LogoutHandler)
 
 	// 管理页面 - 需要会话验证
 	r.GET("/", func(c *gin.Context) {
