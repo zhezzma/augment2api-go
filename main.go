@@ -160,7 +160,7 @@ func setupRouter() *gin.Engine {
 	})
 
 	// 鉴权路由组
-	authGroup := r.Group("")
+	authGroup := r.Group(fmt.Sprintf("%s", ProcessPath(config.AppConfig.RoutePrefix)))
 	authGroup.Use(api.AuthMiddleware())
 	{
 		// OpenAI兼容的聊天端点
@@ -173,6 +173,25 @@ func setupRouter() *gin.Engine {
 	}
 
 	return r
+}
+
+func ProcessPath(path string) string {
+	// 判断字符串是否为空
+	if path == "" {
+		return ""
+	}
+
+	// 判断开头是否为/，不是则添加
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	// 判断结尾是否为/，是则去掉
+	if strings.HasSuffix(path, "/") {
+		path = path[:len(path)-1]
+	}
+
+	return path
 }
 
 func main() {

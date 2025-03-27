@@ -11,6 +11,7 @@ type Config struct {
 	CodingMode      string
 	CodingToken     string
 	TenantURL       string
+	RoutePrefix     string
 }
 
 var AppConfig Config
@@ -25,6 +26,7 @@ func InitConfig() error {
 		CodingMode:  getEnv("CODING_MODE", "false"),
 		CodingToken: getEnv("CODING_TOKEN", ""),
 		TenantURL:   getEnv("TENANT_URL", ""),
+		RoutePrefix: getEnv("ROUTE_PREFIX", ""), // 自定义openai接口路由前缀
 	}
 
 	// redis连接字符串 示例: redis://default:pwd@localhost:6379
