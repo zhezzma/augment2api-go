@@ -12,6 +12,8 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 - 支持流式/非流式输出 (Stream/Non-Stream)
 - 支持简洁的多Token管理界面管理
 - 支持 Redis 存储 Token
+- 支持批量检测Token和租户地址并更新
+- 支持接口批量添加Token
 
 ## 环境变量配置
 
