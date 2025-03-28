@@ -115,6 +115,41 @@ curl -X POST http://localhost:27080/v1/chat/completions \
 访问 `http://localhost:27080/` 可以打开管理界面登录页面，登录之后即可交互式获取、管理Token。
 
 
+## 批量添加Token
+
+```bash
+# 批量添加Token-未设置AUTH_TOKEN
+curl -X POST http://localhost:27080/api/add/tokens \
+-H "Content-Type: application/json" \
+-d '[
+    {
+        "token": "token1",
+        "tenantUrl": "https://tenant1.com"
+    },
+    {
+        "token": "token2",
+        "tenantUrl": "https://tenant2.com"
+    }
+]'
+```
+
+```bash   
+# 批量添加Token-设置AUTH_TOKEN
+curl -X POST http://localhost:27080/api/add/tokens \
+-H "Content-Type: application/json" \
+-H "Authorization: Bearer your-auth-token" \
+-d '[
+    {
+        "token": "token1",
+        "tenantUrl": "https://tenant1.com"
+    },
+    {
+        "token": "token2",
+        "tenantUrl": "https://tenant2.com"
+    }
+]'    
+```
+
 ## Star History
 
 <a href="https://www.star-history.com/#linqiu919/augment2api&Date">

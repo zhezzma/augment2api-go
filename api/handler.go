@@ -697,7 +697,16 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token) // 使用获取到的token
+	req.Header.Set("Authorization", "Bearer "+token)
+	userAgents := []string{
+		"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) GoLand/2024.3.5",
+		"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5",
+		"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) PyCharm/2024.3.5",
+	}
+	req.Header.Set("User-Agent", userAgents[rand.Intn(len(userAgents))])
+	req.Header.Set("x-api-version", "2")
+	req.Header.Set("x-request-id", uuid.New().String())
+	req.Header.Set("x-request-session-id", uuid.New().String())
 
 	// 发送请求
 	client := &http.Client{}

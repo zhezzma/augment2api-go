@@ -189,6 +189,9 @@ func setupRouter() *gin.Engine {
 	// 删除token - 需要会话验证
 	r.DELETE("/api/token/:token", api.AuthTokenMiddleware(), api.DeleteTokenHandler)
 
+	// 批量检测token - 需要会话验证
+	r.GET("/api/check-tokens", api.AuthTokenMiddleware(), api.CheckAllTokensHandler)
+
 	// 回调端点，用于处理授权码 - 需要会话验证
 	r.POST("/callback", api.AuthTokenMiddleware(), func(c *gin.Context) {
 		api.CallbackHandler(c, func(tenantURL, _, code string) (string, error) {
@@ -207,6 +210,9 @@ func setupRouter() *gin.Engine {
 
 		// OpenAI兼容的模型接口
 		authGroup.GET("/v1/models", api.ModelsHandler)
+
+		// 批量添加token
+		authGroup.POST("/api/add/tokens", api.AddTokenHandler)
 	}
 
 	return r

@@ -22,18 +22,22 @@ func InitConfig() error {
 	AppConfig = Config{
 		// 必填配置
 		RedisConnString: getEnv("REDIS_CONN_STRING", ""),
+		AccessPwd:       getEnv("ACCESS_PWD", ""),
 		// 非必填配置
-		AuthToken:   getEnv("AUTH_TOKEN", ""),
+		AuthToken:   getEnv("AUTH_TOKEN", ""),   // api鉴权token
+		RoutePrefix: getEnv("ROUTE_PREFIX", ""), // 自定义openai接口路由前缀
 		CodingMode:  getEnv("CODING_MODE", "false"),
 		CodingToken: getEnv("CODING_TOKEN", ""),
 		TenantURL:   getEnv("TENANT_URL", ""),
-		AccessPwd:   getEnv("ACCESS_PWD", ""),
-		RoutePrefix: getEnv("ROUTE_PREFIX", ""), // 自定义openai接口路由前缀
 	}
 
-	// redis连接字符串 示例: redis://default:pwd@localhost:6379
-	if AppConfig.RedisConnString == "" {
-		logger.Log.Fatalln("未配置环境变量 REDIS_CONN_STRING")
+	if AppConfig.CodingMode == "false" {
+
+		// redis连接字符串 示例: redis://default:pwd@localhost:6379
+		if AppConfig.RedisConnString == "" {
+			logger.Log.Fatalln("未配置环境变量 REDIS_CONN_STRING")
+		}
+
 	}
 
 	// 为了安全，必须配置访问密码
@@ -46,6 +50,7 @@ func InitConfig() error {
 		"AuthToken:    " + AppConfig.AuthToken + "\n" +
 		"AccessPwd:    " + AppConfig.AccessPwd + "\n" +
 		"RedisConnString: " + AppConfig.RedisConnString + "\n" +
+		"RoutePrefix: " + AppConfig.RoutePrefix + "\n" +
 		"----------------------------------------")
 
 	return nil

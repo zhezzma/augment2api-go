@@ -120,7 +120,35 @@
         }
 
         .panel-title h2 {
-            margin-bottom: 0;
+            margin: 0;
+            margin-left: 10px;
+            flex: 1;
+        }
+
+        .panel-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .panel-actions button {
+            padding: 8px 15px;
+            border-radius: var(--radius);
+            border: none;
+            background: var(--primary-color);
+            color: white;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.3s;
+        }
+
+        .panel-actions button i {
+            color: white;
+        }
+
+        .panel-actions button:hover {
+            background: var(--secondary-color);
         }
 
         .token-display {
@@ -421,6 +449,17 @@
         .logout-btn:hover {
             background: #d32f2f;
         }
+
+        /* 添加检测结果提示样式 */
+        .check-result {
+            margin: 10px 0;
+            padding: 12px;
+            border-radius: var(--radius);
+            background: #e8f5e9;
+            color: #2e7d32;
+            font-size: 14px;
+            display: none;
+        }
     </style>
     <!-- 添加图标 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
@@ -442,10 +481,13 @@
                 <div class="panel-title">
                     <i class="bi bi-key-fill"></i>
                     <h2>当前Token列表</h2>
+                    <div class="panel-actions">
+                        <button id="refresh-token"><i class="bi bi-arrow-clockwise btn-icon"></i> <span class="btn-text">刷新</span></button>
+                        <button id="check-all-tokens"><i class="bi bi-shield-check btn-icon"></i> <span class="btn-text">批量检测</span></button>
+                    </div>
                 </div>
                 
                 <div id="token-list">加载中...</div>
-                <button id="refresh-token"><i class="bi bi-arrow-clockwise btn-icon"></i> <span class="btn-text">刷新</span></button>
             </div>
 
             <!-- 右侧面板：授权获取Token -->
@@ -466,7 +508,7 @@
                     <div class="step">
                         <h3><span class="step-number">2</span> 提交授权响应</h3>
                         <p>完成授权后，将获得的授权响应粘贴到下面的文本框中：</p>
-                        <textarea id="auth-response" placeholder='{"code":"_000baec407c57c4bf9xxxxxxxxxxxxxx","state":"0uXxxxxxxxx","tenant_url":"https://d20.api.augmentcode.com/"}'></textarea>
+                        <textarea id="auth-response" placeholder='{"code":"_000baec407c57c4bf9xxxxxxxxxxxxxx","state":"0uXxxxxxxxx","tenant_url":"https://dxx.api.augmentcode.com/"}'></textarea>
                         <div id="validation-message" class="error"></div>
                         <button id="submit-auth"><i class="bi bi-check2-circle" class="btn-text"></i> <span class="btn-text">获取Token</span></button>
                         <div id="submit-result" class="success"></div>
@@ -760,6 +802,48 @@
                         alert('登出请求失败: ' + error.message);
                     });
                 }
+            });
+
+            // 批量检测token
+            document.getElementById('check-all-tokens').addEventListener('click', function() {
+                const button = this;
+                button.classList.add('loading');
+                
+                fetch('/api/check-tokens')
+                    .then(response => response.json())
+                    .then(data => {
+                        if(data.status === 'success') {
+                            // 创建或获取检测结果显示元素
+                            let checkResult = document.querySelector('.check-result');
+                            if(!checkResult) {
+                                checkResult = document.createElement('div');
+                                checkResult.className = 'check-result';
+                                document.querySelector('.panel-title').after(checkResult);
+                            }
+                            
+                            // 显示检测结果
+                            checkResult.textContent = `检测完成! 共检测 ${data.total} 个Token，更新了 ${data.updated} 个Token的租户地址`;
+                            checkResult.style.display = 'block';
+                            
+                            // 如果有更新，则刷新token列表
+                            if(data.updated > 0) {
+                                fetchCurrentToken();
+                            }
+                            
+                            // 3秒后隐藏提示
+                            setTimeout(() => {
+                                checkResult.style.display = 'none';
+                            }, 3000);
+                        } else {
+                            alert('检测失败: ' + (data.error || '未知错误'));
+                        }
+                    })
+                    .catch(error => {
+                        alert('请求失败: ' + error.message);
+                    })
+                    .finally(() => {
+                        button.classList.remove('loading');
+                    });
             });
         });
     </script>
