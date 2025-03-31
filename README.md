@@ -2,13 +2,18 @@
 
 Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI 兼容的接口，支持 Claude 3.7 模型的调用。
 
+## 使用须知
+- 使用本项目可能导致您的账号被标记、风控或封禁，请自行承担风险！
+- 默认使用`Agent`模式，屏蔽所有工具调用，使用模型原生能力回答，否则对话会被工具调用截断
+- `Augment`的`Agent`模式很强，推荐你在编辑器中使用官方插件，体验不输`Cursor`
+
 # 问题反馈
 🐞 <a href="https://t.me/+AfGumJADbLYzYzE1" style="font-size: 15px;">Telegram交流群</a>
 
 ## 功能特点
 
 - 提供 OpenAI 兼容的 API 接口
-- 支持 Claude 3.7 模型
+- 支持 Claude 3.7 模型(Maybe)
 - 支持流式/非流式输出 (Stream/Non-Stream)
 - 支持简洁的多Token管理界面管理
 - 支持 Redis 存储 Token
@@ -29,10 +34,6 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 
 提示：如果页面获取Token失败，可以配置`CODING_MODE`为true,同时配置`CODING_TOKEN`和`TENANT_URL`即可使用指定Token和租户地址，仅限单个Token
 
-
-# TODO
-- [x] 面板增加访问密码
-- [ ] 面板增加Token使用次数
 
 ## 快速开始
 

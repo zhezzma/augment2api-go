@@ -119,14 +119,15 @@ type AgentMemory struct {
 
 // AugmentRequest Augment API请求结构
 type AugmentRequest struct {
-	ChatHistory []AugmentChatHistory `json:"chat_history"`
-	Message     string               `json:"message"`
-	Mode        string               `json:"mode"`
-	Prefix      string               `json:"prefix"`
-	Suffix      string               `json:"suffix"`
-	Lang        string               `json:"lang"`
-	Path        string               `json:"path"`
-	Blobs       struct {
+	ChatHistory    []AugmentChatHistory `json:"chat_history"`
+	Message        string               `json:"message"`
+	Mode           string               `json:"mode"`
+	Prefix         string               `json:"prefix"`
+	Suffix         string               `json:"suffix"`
+	Lang           string               `json:"lang"`
+	Path           string               `json:"path"`
+	UserGuideLines string               `json:"user_guidelines"`
+	Blobs          struct {
 		CheckpointID string        `json:"checkpoint_id"`
 		AddedBlobs   []interface{} `json:"added_blobs"`
 		DeletedBlobs []interface{} `json:"deleted_blobs"`
@@ -234,12 +235,13 @@ func generatePath() string {
 // convertToAugmentRequest 将OpenAI请求转换为Augment请求
 func convertToAugmentRequest(req OpenAIRequest) AugmentRequest {
 	augmentReq := AugmentRequest{
-		Path:    "",                  // 这个是关联的项目文件路径，暂时传空，不影响对话
-		Mode:    "AGENT",             // 固定为Agent模式，CHAT模式大概率会使用垃圾模型回复
-		Prefix:  defaultPrefix,       // 固定前缀，影响模型回复风格
-		Suffix:  " ",                 // 固定后缀，暂时传空，不影响对话
-		Lang:    detectLanguage(req), // 简单检测当前对话语言类型，不传好像回答有问题
-		Message: "",                  // 当前对话消息
+		Path:           "",                  // 这个是关联的项目文件路径，暂时传空，不影响对话
+		Mode:           "AGENT",             // 固定为Agent模式，CHAT模式大概率会使用垃圾模型回复
+		Prefix:         defaultPrefix,       // 固定前缀，影响模型回复风格
+		Suffix:         " ",                 // 固定后缀，暂时传空，不影响对话
+		Lang:           detectLanguage(req), // 简单检测当前对话语言类型，不传好像回答有问题
+		Message:        "",                  // 当前对话消息
+		UserGuideLines: "使用中文回答，不要调用任何工具，联网搜索类问题请根据你的已有知识回答",
 		// 初始化为空列表
 		ChatHistory: make([]AugmentChatHistory, 0),
 		Blobs: struct {
