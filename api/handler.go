@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -195,13 +196,7 @@ func GetAuthInfo() (string, string) {
 		return config.AppConfig.CodingToken, config.AppConfig.TenantURL
 	}
 
-	// 随机获取一个token
-	token, tenantURL := GetRandomToken()
-	if token != "" && tenantURL != "" {
-		return token, tenantURL
-	}
-
-	// 如果没有可用的token，则使用内存中的token
+	// 直接返回内存中的token和tenantURL
 	return accessToken, tenantURL
 }
 
@@ -670,12 +665,28 @@ func ChatCompletionsHandler(c *gin.Context) {
 
 // 处理流式请求
 func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string) {
+	defer cleanupRequestStatus(c)
+
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 
-	// 获取token和tenant_url
-	token, tenant := GetAuthInfo()
+	// 从上下文中获取token和tenant_url
+	tokenInterface, exists := c.Get("token")
+	tenantURLInterface, exists2 := c.Get("tenant_url")
+
+	var token, tenant string
+
+	if exists && exists2 {
+		token, _ = tokenInterface.(string)
+		tenant, _ = tenantURLInterface.(string)
+	}
+
+	// 如果上下文中没有，则使用GetAuthInfo获取
+	if token == "" || tenant == "" {
+		token, tenant = GetAuthInfo()
+	}
+
 	if token == "" || tenant == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "无可用Token,请先在管理页面获取"})
 		return
@@ -831,8 +842,24 @@ func estimateTokenCount(text string) int {
 
 // 处理非流式请求
 func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string) {
-	// 获取token和tenant_url
-	token, tenant := GetAuthInfo()
+	defer cleanupRequestStatus(c)
+
+	// 从上下文中获取token和tenant_url
+	tokenInterface, exists := c.Get("token")
+	tenantURLInterface, exists2 := c.Get("tenant_url")
+
+	var token, tenant string
+
+	if exists && exists2 {
+		token, _ = tokenInterface.(string)
+		tenant, _ = tenantURLInterface.(string)
+	}
+
+	// 如果上下文中没有，则使用GetAuthInfo获取
+	if token == "" || tenant == "" {
+		token, tenant = GetAuthInfo()
+	}
+
 	if token == "" || tenant == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "无可用Token,请先在管理页面获取"})
 		return
@@ -944,4 +971,37 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 	}
 
 	c.JSON(http.StatusOK, openAIResp)
+}
+
+// 清理请求状态
+func cleanupRequestStatus(c *gin.Context) {
+	// 获取锁和 token
+	lockInterface, exists := c.Get("token_lock")
+	if !exists {
+		return
+	}
+
+	tokenInterface, exists := c.Get("token")
+	if !exists {
+		return
+	}
+
+	lock, ok := lockInterface.(*sync.Mutex)
+	if !ok {
+		return
+	}
+
+	token, ok := tokenInterface.(string)
+	if !ok {
+		return
+	}
+
+	// 更新请求状态为已完成
+	SetTokenRequestStatus(token, TokenRequestStatus{
+		InProgress:    false,
+		LastRequestAt: time.Now(),
+	})
+
+	// 释放锁
+	lock.Unlock()
 }

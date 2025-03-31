@@ -199,6 +199,9 @@ func setupRouter() *gin.Engine {
 		})
 	})
 
+	// 添加 token 并发控制中间件
+	r.Use(api.TokenConcurrencyMiddleware())
+
 	// 鉴权路由组
 	authGroup := r.Group(fmt.Sprintf("%s", ProcessPath(config.AppConfig.RoutePrefix)))
 	authGroup.Use(api.AuthMiddleware())

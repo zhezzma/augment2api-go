@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
 
@@ -24,6 +25,12 @@ type TokenInfo struct {
 type TokenItem struct {
 	Token     string `json:"token"`
 	TenantUrl string `json:"tenantUrl"`
+}
+
+// TokenRequestStatus 记录 token 请求状态
+type TokenRequestStatus struct {
+	InProgress    bool      `json:"in_progress"`
+	LastRequestAt time.Time `json:"last_request_at"`
 }
 
 // GetRedisTokenHandler 从Redis获取token列表
@@ -59,6 +66,12 @@ func GetRedisTokenHandler(c *gin.Context) {
 			continue // 跳过无效的token
 		}
 
+		// 获取token状态
+		status, err := config.RedisHGet(key, "status")
+		if err == nil && status == "disabled" {
+			continue // 跳过被标记为不可用的token
+		}
+
 		tokenList = append(tokenList, TokenInfo{
 			Token:     token,
 			TenantURL: tenantURL,
@@ -77,10 +90,16 @@ func SaveTokenToRedis(token, tenantURL string) error {
 	tokenKey := "token:" + token
 
 	// 将tenant_url存储在token对应的哈希表中
-	return config.RedisHSet(tokenKey, "tenant_url", tenantURL)
+	err := config.RedisHSet(tokenKey, "tenant_url", tenantURL)
+	if err != nil {
+		return err
+	}
+
+	// 默认将新添加的token标记为活跃状态
+	return config.RedisHSet(tokenKey, "status", "active")
 }
 
-// GetRandomToken 从Redis中随机获取一个token
+// GetRandomToken 从Redis中随机获取一个可用的token
 func GetRandomToken() (string, string) {
 	// 获取所有token的key
 	keys, err := config.RedisKeys("token:*")
@@ -88,9 +107,25 @@ func GetRandomToken() (string, string) {
 		return "", ""
 	}
 
+	// 筛选可用的token
+	var availableTokens []string
+	for _, key := range keys {
+		// 获取token状态
+		status, err := config.RedisHGet(key, "status")
+		if err == nil && status == "disabled" {
+			continue // 跳过被标记为不可用的token
+		}
+		availableTokens = append(availableTokens, key)
+	}
+
+	// 如果没有可用的token
+	if len(availableTokens) == 0 {
+		return "", ""
+	}
+
 	// 随机选择一个token
-	randomIndex := rand.Intn(len(keys))
-	randomKey := keys[randomIndex]
+	randomIndex := rand.Intn(len(availableTokens))
+	randomKey := availableTokens[randomIndex]
 
 	// 从key中提取token
 	token := randomKey[6:] // 去掉前缀 "token:"
@@ -276,6 +311,8 @@ func CheckTokenTenantURL(token string) (string, error) {
 		return "", fmt.Errorf("序列化测试消息失败: %v", err)
 	}
 
+	tokenKey := "token:" + token
+
 	// 测试不同的租户地址
 	for i := 20; i >= 1; i-- {
 		tenantURL := fmt.Sprintf("https://d%d.api.augmentcode.com/", i)
@@ -308,19 +345,34 @@ func CheckTokenTenantURL(token string) (string, error) {
 		}
 		defer resp.Body.Close()
 
+		// 检查是否返回401状态码（未授权）
+		if resp.StatusCode == http.StatusUnauthorized {
+			// 将token标记为不可用
+			err = config.RedisHSet(tokenKey, "status", "disabled")
+			if err != nil {
+				fmt.Printf("标记token为不可用失败: %v\n", err)
+			}
+			fmt.Printf("token: %s 已被标记为不可用，返回401未授权\n", token)
+			return "", fmt.Errorf("token未授权，已被标记为不可用")
+		}
+
 		// 检查响应状态
 		if resp.StatusCode == http.StatusOK {
 			// 尝试读取一小部分响应以确认是否有效
 			buf := make([]byte, 1024)
 			n, err := resp.Body.Read(buf)
 			if err == nil && n > 0 {
-				// 更新Redis中的租户地址
-				tokenKey := "token:" + token
+				// 更新Redis中的租户地址和状态
 				err = config.RedisHSet(tokenKey, "tenant_url", tenantURL)
 				if err != nil {
 					return "", fmt.Errorf("更新租户地址失败: %v", err)
 				}
-				fmt.Printf("token: %s ,更新租户地址成功: %s", token, tenantURL)
+				// 将token标记为可用
+				err = config.RedisHSet(tokenKey, "status", "active")
+				if err != nil {
+					fmt.Printf("标记token为可用失败: %v\n", err)
+				}
+				fmt.Printf("token: %s ,更新租户地址成功: %s\n", token, tenantURL)
 				return tenantURL, nil
 			}
 		}
@@ -343,9 +395,10 @@ func CheckAllTokensHandler(c *gin.Context) {
 
 	if len(keys) == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "success",
-			"total":   0,
-			"updated": 0,
+			"status":   "success",
+			"total":    0,
+			"updated":  0,
+			"disabled": 0,
 		})
 		return
 	}
@@ -354,6 +407,7 @@ func CheckAllTokensHandler(c *gin.Context) {
 	// 使用互斥锁保护计数器
 	var mu sync.Mutex
 	var updatedCount int
+	var disabledCount int
 
 	for _, key := range keys {
 		wg.Add(1)
@@ -368,20 +422,123 @@ func CheckAllTokensHandler(c *gin.Context) {
 
 			// 检测租户地址
 			newTenantURL, err := CheckTokenTenantURL(token)
-			fmt.Printf("token: %s ,当前租户地址: %s ,检测租户地址: %s", token, oldTenantURL, newTenantURL)
-			if err == nil && newTenantURL != oldTenantURL {
-				mu.Lock()
+			fmt.Printf("token: %s ,当前租户地址: %s ,检测租户地址: %s\n", token, oldTenantURL, newTenantURL)
+
+			mu.Lock()
+			if err != nil && err.Error() == "token未授权，已被标记为不可用" {
+				disabledCount++
+			} else if err == nil && newTenantURL != oldTenantURL {
 				updatedCount++
-				mu.Unlock()
 			}
+			mu.Unlock()
 		}(key)
 	}
 
 	wg.Wait()
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"total":   len(keys),
-		"updated": updatedCount,
+		"status":   "success",
+		"total":    len(keys),
+		"updated":  updatedCount,
+		"disabled": disabledCount,
 	})
+}
+
+// SetTokenRequestStatus 设置token请求状态
+func SetTokenRequestStatus(token string, status TokenRequestStatus) error {
+	// 使用Redis存储token请求状态
+	key := "token_status:" + token
+
+	// 将状态转换为JSON
+	statusJSON, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+
+	// 存储到Redis，设置过期时间为1小时
+	return config.RedisSet(key, string(statusJSON), time.Hour)
+}
+
+// GetTokenRequestStatus 获取token请求状态
+func GetTokenRequestStatus(token string) (TokenRequestStatus, error) {
+	key := "token_status:" + token
+
+	// 从Redis获取状态
+	statusJSON, err := config.RedisGet(key)
+	if err != nil {
+		// 如果key不存在，返回默认状态
+		if err == redis.Nil {
+			return TokenRequestStatus{
+				InProgress:    false,
+				LastRequestAt: time.Time{}, // 零值时间
+			}, nil
+		}
+		return TokenRequestStatus{}, err
+	}
+
+	// 解析JSON
+	var status TokenRequestStatus
+	if err := json.Unmarshal([]byte(statusJSON), &status); err != nil {
+		return TokenRequestStatus{}, err
+	}
+
+	return status, nil
+}
+
+// GetAvailableToken 获取一个可用的token（未在使用中且冷却时间已过）
+func GetAvailableToken() (string, string) {
+	// 获取所有token的key
+	keys, err := config.RedisKeys("token:*")
+	if err != nil || len(keys) == 0 {
+		return "", ""
+	}
+
+	// 筛选可用的token
+	var availableTokens []string
+	var availableTenantURLs []string
+
+	for _, key := range keys {
+		// 获取token状态
+		status, err := config.RedisHGet(key, "status")
+		if err == nil && status == "disabled" {
+			continue // 跳过被标记为不可用的token
+		}
+
+		// 从key中提取token
+		token := key[6:] // 去掉前缀 "token:"
+
+		// 获取token的请求状态
+		requestStatus, err := GetTokenRequestStatus(token)
+		if err != nil {
+			continue
+		}
+
+		// 如果token正在使用中，跳过
+		if requestStatus.InProgress {
+			continue
+		}
+
+		// 如果距离上次请求不足3秒，跳过
+		if time.Since(requestStatus.LastRequestAt) < 3*time.Second {
+			continue
+		}
+
+		// 获取对应的tenant_url
+		tenantURL, err := config.RedisHGet(key, "tenant_url")
+		if err != nil {
+			continue
+		}
+
+		availableTokens = append(availableTokens, token)
+		availableTenantURLs = append(availableTenantURLs, tenantURL)
+	}
+
+	// 如果没有可用的token
+	if len(availableTokens) == 0 {
+		return "", ""
+	}
+
+	// 随机选择一个token
+	randomIndex := rand.Intn(len(availableTokens))
+	return availableTokens[randomIndex], availableTenantURLs[randomIndex]
 }

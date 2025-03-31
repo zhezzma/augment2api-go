@@ -822,11 +822,11 @@
                             }
                             
                             // 显示检测结果
-                            checkResult.textContent = `检测完成! 共检测 ${data.total} 个Token，更新了 ${data.updated} 个Token的租户地址`;
+                            checkResult.textContent = `检测完成! 共检测 ${data.total} 个Token，更新了 ${data.updated} 个Token的租户地址，禁用了 ${data.disabled} 个无效Token`;
                             checkResult.style.display = 'block';
                             
-                            // 如果有更新，则刷新token列表
-                            if(data.updated > 0) {
+                            // 如果有更新或禁用，则刷新token列表
+                            if(data.updated > 0 || data.disabled > 0) {
                                 fetchCurrentToken();
                             }
                             
