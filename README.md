@@ -48,7 +48,7 @@ docker run -d \
   -e ACCESS_PWD="your-access-password" \
   -e AUTH_TOKEN="your-auth-token" \
   --restart always \
-  linqiu1199/augment2api:v0.0.5
+  linqiu1199/augment2api:v0.0.6
 ```
 
 #### 使用 Docker Compose 运行
