@@ -586,7 +586,8 @@
                     if (data.status === 'success') {
                         const tokenListElement = document.getElementById('token-list');
                         
-                        if (data.tokens.length === 0) {
+                        // 添加检查确保 data.tokens 存在
+                        if (!data.tokens || data.tokens.length === 0) {
                             tokenListElement.innerHTML = '<div class="no-tokens">暂无可用Token，请点击右侧面板获取</div>';
                             return;
                         }
