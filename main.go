@@ -199,22 +199,21 @@ func setupRouter() *gin.Engine {
 		})
 	})
 
-	// 添加 token 并发控制中间件
-	r.Use(api.TokenConcurrencyMiddleware())
-
 	// 鉴权路由组
-	authGroup := r.Group(fmt.Sprintf("%s", ProcessPath(config.AppConfig.RoutePrefix)))
+	authGroup := r.Group(ProcessPath(config.AppConfig.RoutePrefix))
 	authGroup.Use(api.AuthMiddleware())
 	{
 		// OpenAI兼容的聊天端点
-		authGroup.POST("/v1/chat/completions", api.ChatCompletionsHandler)
-		authGroup.POST("/v1", api.ChatCompletionsHandler)
-		authGroup.POST("/v1/chat", api.ChatCompletionsHandler)
+		chatGroup := authGroup.Group("/")
+		// 并发控制
+		chatGroup.Use(middleware.TokenConcurrencyMiddleware())
+		{
+			chatGroup.POST("/v1/chat/completions", api.ChatCompletionsHandler)
+			chatGroup.POST("/v1", api.ChatCompletionsHandler)
+			chatGroup.POST("/v1/chat", api.ChatCompletionsHandler)
+		}
 
-		// OpenAI兼容的模型接口
 		authGroup.GET("/v1/models", api.ModelsHandler)
-
-		// 批量添加token
 		authGroup.POST("/api/add/tokens", api.AddTokenHandler)
 	}
 

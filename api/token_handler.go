@@ -2,8 +2,10 @@ package api
 
 import (
 	"augment2api/config"
+	"augment2api/pkg/logger"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -99,46 +101,6 @@ func SaveTokenToRedis(token, tenantURL string) error {
 	return config.RedisHSet(tokenKey, "status", "active")
 }
 
-// GetRandomToken 从Redis中随机获取一个可用的token
-func GetRandomToken() (string, string) {
-	// 获取所有token的key
-	keys, err := config.RedisKeys("token:*")
-	if err != nil || len(keys) == 0 {
-		return "", ""
-	}
-
-	// 筛选可用的token
-	var availableTokens []string
-	for _, key := range keys {
-		// 获取token状态
-		status, err := config.RedisHGet(key, "status")
-		if err == nil && status == "disabled" {
-			continue // 跳过被标记为不可用的token
-		}
-		availableTokens = append(availableTokens, key)
-	}
-
-	// 如果没有可用的token
-	if len(availableTokens) == 0 {
-		return "", ""
-	}
-
-	// 随机选择一个token
-	randomIndex := rand.Intn(len(availableTokens))
-	randomKey := availableTokens[randomIndex]
-
-	// 从key中提取token
-	token := randomKey[6:] // 去掉前缀 "token:"
-
-	// 获取对应的tenant_url
-	tenantURL, err := config.RedisHGet(randomKey, "tenant_url")
-	if err != nil {
-		return "", ""
-	}
-
-	return token, tenantURL
-}
-
 // DeleteTokenHandler 删除指定的token
 func DeleteTokenHandler(c *gin.Context) {
 	token := c.Param("token")
@@ -175,51 +137,6 @@ func DeleteTokenHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error",
 			"error":  "删除token失败: " + err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-	})
-}
-
-// UseTokenHandler 设置指定的token为当前活跃token
-func UseTokenHandler(c *gin.Context) {
-	token := c.Param("token")
-	if token == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"status": "error",
-			"error":  "未指定token",
-		})
-		return
-	}
-
-	tokenKey := "token:" + token
-
-	// 检查token是否存在
-	exists, err := config.RedisExists(tokenKey)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"status": "error",
-			"error":  "检查token失败: " + err.Error(),
-		})
-		return
-	}
-
-	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{
-			"status": "error",
-			"error":  "token不存在",
-		})
-		return
-	}
-
-	// 设置当前活跃token
-	if err := config.RedisSet("current_token", token, 0); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"status": "error",
-			"error":  "设置当前token失败: " + err.Error(),
 		})
 		return
 	}
@@ -288,7 +205,7 @@ func AddTokenHandler(c *gin.Context) {
 func CheckTokenTenantURL(token string) (string, error) {
 	// 构建测试消息
 	testMsg := map[string]interface{}{
-		"message":              "hello",
+		"message":              "hello，what is your name",
 		"mode":                 "CHAT",
 		"prefix":               "You are AI assistant,help me to solve problems!",
 		"suffix":               " ",
@@ -313,10 +230,28 @@ func CheckTokenTenantURL(token string) (string, error) {
 
 	tokenKey := "token:" + token
 
-	// 测试不同的租户地址
-	for i := 20; i >= 1; i-- {
-		tenantURL := fmt.Sprintf("https://d%d.api.augmentcode.com/", i)
+	currentTenantURL, err := config.RedisHGet(tokenKey, "tenant_url")
 
+	var tenantURLResult string
+	var foundValid bool
+	var tenantURLsToTest []string
+
+	// 如果Redis中有有效的租户地址，优先测试该地址
+	if err == nil && currentTenantURL != "" {
+		tenantURLsToTest = append(tenantURLsToTest, currentTenantURL)
+	}
+
+	// 添加其他租户地址
+	for i := 20; i >= 1; i-- {
+		newTenantURL := fmt.Sprintf("https://d%d.api.augmentcode.com/", i)
+		// 避免重复测试已有的租户地址
+		if newTenantURL != currentTenantURL {
+			tenantURLsToTest = append(tenantURLsToTest, newTenantURL)
+		}
+	}
+
+	// 测试租户地址
+	for _, tenantURL := range tenantURLsToTest {
 		// 创建请求
 		req, err := http.NewRequest("POST", tenantURL+"chat-stream", bytes.NewReader(jsonData))
 		if err != nil {
@@ -335,46 +270,71 @@ func CheckTokenTenantURL(token string) (string, error) {
 		req.Header.Set("x-request-id", uuid.New().String())
 		req.Header.Set("x-request-session-id", uuid.New().String())
 
-		// 发送请求
-		client := &http.Client{
-			Timeout: 5 * time.Second,
-		}
+		client := createHTTPClient()
 		resp, err := client.Do(req)
 		if err != nil {
+			fmt.Printf("请求失败: %v\n", err)
 			continue
 		}
-		defer resp.Body.Close()
 
-		// 检查是否返回401状态码（未授权）
-		if resp.StatusCode == http.StatusUnauthorized {
-			// 将token标记为不可用
-			err = config.RedisHSet(tokenKey, "status", "disabled")
-			if err != nil {
-				fmt.Printf("标记token为不可用失败: %v\n", err)
+		isInvalid := false
+		func() {
+			defer resp.Body.Close()
+
+			// 检查是否返回401状态码（未授权）
+			if resp.StatusCode == http.StatusUnauthorized {
+				// 读取响应体内容
+				buf := make([]byte, 1024)
+				n, readErr := resp.Body.Read(buf)
+				responseBody := ""
+				if readErr == nil && n > 0 {
+					responseBody = string(buf[:n])
+				}
+
+				// 只有当响应中包含"Invalid token"时才标记为不可用
+				if readErr == nil && n > 0 && bytes.Contains(buf[:n], []byte("Invalid token")) {
+					// 将token标记为不可用
+					err = config.RedisHSet(tokenKey, "status", "disabled")
+					if err != nil {
+						fmt.Printf("标记token为不可用失败: %v\n", err)
+					}
+					logger.Log.Info("token: %s 已被标记为不可用,返回401未授权,错误信息: %s\n", token, responseBody)
+					isInvalid = true
+				}
+				return
 			}
-			fmt.Printf("token: %s 已被标记为不可用，返回401未授权\n", token)
-			return "", fmt.Errorf("token未授权，已被标记为不可用")
+
+			// 检查响应状态
+			if resp.StatusCode == http.StatusOK {
+				// 尝试读取一小部分响应以确认是否有效
+				buf := make([]byte, 1024)
+				n, err := resp.Body.Read(buf)
+				if err == nil && n > 0 {
+					// 更新Redis中的租户地址和状态
+					err = config.RedisHSet(tokenKey, "tenant_url", tenantURL)
+					if err != nil {
+						return
+					}
+					// 将token标记为可用
+					err = config.RedisHSet(tokenKey, "status", "active")
+					if err != nil {
+						fmt.Printf("标记token为可用失败: %v\n", err)
+					}
+					logger.Log.Info("token: %s ,更新租户地址成功: %s\n", token, tenantURL)
+					tenantURLResult = tenantURL
+					foundValid = true
+				}
+			}
+		}()
+
+		// 如果token无效，立即返回错误，不再测试其他地址
+		if isInvalid {
+			return "", fmt.Errorf("token被标记为不可用")
 		}
 
-		// 检查响应状态
-		if resp.StatusCode == http.StatusOK {
-			// 尝试读取一小部分响应以确认是否有效
-			buf := make([]byte, 1024)
-			n, err := resp.Body.Read(buf)
-			if err == nil && n > 0 {
-				// 更新Redis中的租户地址和状态
-				err = config.RedisHSet(tokenKey, "tenant_url", tenantURL)
-				if err != nil {
-					return "", fmt.Errorf("更新租户地址失败: %v", err)
-				}
-				// 将token标记为可用
-				err = config.RedisHSet(tokenKey, "status", "active")
-				if err != nil {
-					fmt.Printf("标记token为可用失败: %v\n", err)
-				}
-				fmt.Printf("token: %s ,更新租户地址成功: %s\n", token, tenantURL)
-				return tenantURL, nil
-			}
+		// 如果找到有效的租户地址，跳出循环
+		if foundValid {
+			return tenantURLResult, nil
 		}
 	}
 
@@ -422,10 +382,10 @@ func CheckAllTokensHandler(c *gin.Context) {
 
 			// 检测租户地址
 			newTenantURL, err := CheckTokenTenantURL(token)
-			fmt.Printf("token: %s ,当前租户地址: %s ,检测租户地址: %s\n", token, oldTenantURL, newTenantURL)
+			logger.Log.Info("token: %s ,当前租户地址: %s ,检测租户地址: %s\n", token, oldTenantURL, newTenantURL)
 
 			mu.Lock()
-			if err != nil && err.Error() == "token未授权，已被标记为不可用" {
+			if err != nil && err.Error() == "token被标记为不可用" {
 				disabledCount++
 			} else if err == nil && newTenantURL != oldTenantURL {
 				updatedCount++
@@ -467,7 +427,7 @@ func GetTokenRequestStatus(token string) (TokenRequestStatus, error) {
 	statusJSON, err := config.RedisGet(key)
 	if err != nil {
 		// 如果key不存在，返回默认状态
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			return TokenRequestStatus{
 				InProgress:    false,
 				LastRequestAt: time.Time{}, // 零值时间
@@ -486,11 +446,11 @@ func GetTokenRequestStatus(token string) (TokenRequestStatus, error) {
 }
 
 // GetAvailableToken 获取一个可用的token（未在使用中且冷却时间已过）
-func GetAvailableToken() (string, string) {
+func GetAvailableToken() (string, string, bool) {
 	// 获取所有token的key
 	keys, err := config.RedisKeys("token:*")
 	if err != nil || len(keys) == 0 {
-		return "", ""
+		return "", "", false
 	}
 
 	// 筛选可用的token
@@ -535,10 +495,10 @@ func GetAvailableToken() (string, string) {
 
 	// 如果没有可用的token
 	if len(availableTokens) == 0 {
-		return "", ""
+		return "", "", true
 	}
 
 	// 随机选择一个token
 	randomIndex := rand.Intn(len(availableTokens))
-	return availableTokens[randomIndex], availableTenantURLs[randomIndex]
+	return availableTokens[randomIndex], availableTenantURLs[randomIndex], true
 }

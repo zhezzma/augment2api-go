@@ -10,6 +10,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -636,31 +637,28 @@ func ModelsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// ChatCompletionsHandler 处理聊天完成请求
+// ChatCompletionsHandler 处理OpenAI兼容的聊天完成请求
 func ChatCompletionsHandler(c *gin.Context) {
-	token, tenant := GetAuthInfo()
-	if token == "" || tenant == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "无可用Token,请先在管理页面获取"})
-		return
-	}
-
-	var openAIReq OpenAIRequest
-	if err := c.ShouldBindJSON(&openAIReq); err != nil {
+	// 获取请求数据
+	var req OpenAIRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据"})
+		// 确保在错误情况下也清理请求状态
+		cleanupRequestStatus(c)
 		return
 	}
 
 	// 转换为Augment请求格式
-	augmentReq := convertToAugmentRequest(openAIReq)
+	augmentReq := convertToAugmentRequest(req)
 
 	// 处理流式请求
-	if openAIReq.Stream {
-		handleStreamRequest(c, augmentReq, openAIReq.Model)
+	if req.Stream {
+		handleStreamRequest(c, augmentReq, req.Model)
 		return
 	}
 
 	// 处理非流式请求
-	handleNonStreamRequest(c, augmentReq, openAIReq.Model)
+	handleNonStreamRequest(c, augmentReq, req.Model)
 }
 
 // 处理流式请求
@@ -702,7 +700,7 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 	// 打印请求参数
 	//log.Printf("对话请求参数: %s", string(jsonData))
 
-	// 创建请求 - 使用获取到的tenant_url
+	// 创建请求
 	req, err := http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
@@ -721,8 +719,7 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 	req.Header.Set("x-request-id", uuid.New().String())
 	req.Header.Set("x-request-session-id", uuid.New().String())
 
-	// 发送请求
-	client := &http.Client{}
+	client := createHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
@@ -886,8 +883,7 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 	// 使用获取到的token
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	// 发送请求
-	client := &http.Client{}
+	client := createHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
@@ -997,11 +993,37 @@ func cleanupRequestStatus(c *gin.Context) {
 	}
 
 	// 更新请求状态为已完成
-	SetTokenRequestStatus(token, TokenRequestStatus{
+	err := SetTokenRequestStatus(token, TokenRequestStatus{
 		InProgress:    false,
 		LastRequestAt: time.Now(),
 	})
 
-	// 释放锁
-	lock.Unlock()
+	// 无论更新状态是否成功，都要释放锁
+	defer lock.Unlock()
+
+	if err != nil {
+		log.Printf("清理请求状态失败: %v", err)
+		return
+	}
+}
+
+// 创建 HTTP 客户端，如果配置了代理则使用
+func createHTTPClient() *http.Client {
+	client := &http.Client{}
+
+	// 检查是否配置了代理
+	if config.AppConfig.ProxyURL != "" {
+		proxyURL, err := url.Parse(config.AppConfig.ProxyURL)
+		if err == nil {
+			transport := &http.Transport{
+				Proxy: http.ProxyURL(proxyURL),
+			}
+			client.Transport = transport
+			log.Printf("使用代理: %s", config.AppConfig.ProxyURL)
+		} else {
+			log.Printf("代理URL格式错误: %v", err)
+		}
+	}
+
+	return client
 }

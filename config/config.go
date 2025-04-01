@@ -13,6 +13,7 @@ type Config struct {
 	TenantURL       string
 	AccessPwd       string
 	RoutePrefix     string
+	ProxyURL        string
 }
 
 var AppConfig Config
@@ -29,6 +30,7 @@ func InitConfig() error {
 		CodingMode:  getEnv("CODING_MODE", "false"),
 		CodingToken: getEnv("CODING_TOKEN", ""),
 		TenantURL:   getEnv("TENANT_URL", ""),
+		ProxyURL:    getEnv("PROXY_URL", ""), // 代理URL配置
 	}
 
 	if AppConfig.CodingMode == "false" {
@@ -51,6 +53,7 @@ func InitConfig() error {
 		"AccessPwd:    " + AppConfig.AccessPwd + "\n" +
 		"RedisConnString: " + AppConfig.RedisConnString + "\n" +
 		"RoutePrefix: " + AppConfig.RoutePrefix + "\n" +
+		"ProxyURL: " + AppConfig.ProxyURL + "\n" +
 		"----------------------------------------")
 
 	return nil

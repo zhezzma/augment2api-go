@@ -2,7 +2,7 @@ package api
 
 import (
 	"augment2api/config"
-	"fmt"
+	"augment2api/pkg/logger"
 	"net/http"
 	"time"
 
@@ -102,7 +102,7 @@ func AuthTokenMiddleware() gin.HandlerFunc {
 
 		// 验证会话令牌
 		if !ValidateToken(token) {
-			fmt.Println("无效的会话令牌:", token)
+			logger.Log.Info("无效的会话令牌:", token)
 			c.Redirect(http.StatusFound, "/login?error=token_expired")
 			c.Abort()
 			return

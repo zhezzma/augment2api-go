@@ -1,6 +1,8 @@
-package api
+package middleware
 
 import (
+	"augment2api/api"
+	"augment2api/config"
 	"net/http"
 	"strings"
 	"sync"
@@ -38,10 +40,24 @@ func TokenConcurrencyMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// 调试模式无需限制
+		if config.AppConfig.CodingMode == "true" {
+			token := config.AppConfig.CodingToken
+			tenantURL := config.AppConfig.TenantURL
+			c.Set("token", token)
+			c.Set("tenant_url", tenantURL)
+			c.Next()
+		}
+
 		// 获取一个可用的token
-		token, tenantURL := GetAvailableToken()
+		token, tenantURL, exist := api.GetAvailableToken()
+		if !exist {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "当前无可用token，请在页面添加"})
+			c.Abort()
+			return
+		}
 		if token == "" || tenantURL == "" {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "当前所有token都在使用中或冷却中，请稍后再试"})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "当前请求过多，请稍后再试"})
 			c.Abort()
 			return
 		}
@@ -49,11 +65,11 @@ func TokenConcurrencyMiddleware() gin.HandlerFunc {
 		// 获取该token的锁
 		lock := getTokenLock(token)
 
-		// 尝试获取锁，这会阻塞直到获取到锁
+		// 尝试获取锁，会阻塞直到获取到锁
 		lock.Lock()
 
 		// 更新请求状态
-		err := SetTokenRequestStatus(token, TokenRequestStatus{
+		err := api.SetTokenRequestStatus(token, api.TokenRequestStatus{
 			InProgress:    true,
 			LastRequestAt: time.Now(),
 		})

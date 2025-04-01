@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Augment2Api</title>
+    <title>Augment2Api-面板</title>
+    <link rel="icon" href="../static/augment.svg" type="image/svg+xml">
+    <link rel="alternate icon" href="../static/augment.svg" type="image/x-icon">
     <style>
         :root {
             --primary-color: #4361ee;
@@ -822,7 +824,7 @@
                             }
                             
                             // 显示检测结果
-                            checkResult.textContent = `检测完成! 共检测 ${data.total} 个Token，更新了 ${data.updated} 个Token的租户地址，禁用了 ${data.disabled} 个无效Token`;
+                            checkResult.textContent = `检测完成! 共检测 ${data.total} 个Token，更新 ${data.updated} 个Token租户地址，禁用 ${data.disabled} 个无效Token`;
                             checkResult.style.display = 'block';
                             
                             // 如果有更新或禁用，则刷新token列表
@@ -830,10 +832,10 @@
                                 fetchCurrentToken();
                             }
                             
-                            // 3秒后隐藏提示
+                            // 5秒后隐藏提示
                             setTimeout(() => {
                                 checkResult.style.display = 'none';
-                            }, 3000);
+                            }, 5000);
                         } else {
                             alert('检测失败: ' + (data.error || '未知错误'));
                         }
