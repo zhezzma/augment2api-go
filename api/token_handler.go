@@ -420,6 +420,14 @@ func CheckAllTokensHandler(c *gin.Context) {
 	var disabledCount int
 
 	for _, key := range keys {
+		// 获取token状态，跳过已标记为不可用的token
+		status, err := config.RedisHGet(key, "status")
+		if err == nil && status == "disabled" {
+			mu.Lock()
+			mu.Unlock()
+			continue // 跳过此token
+		}
+
 		wg.Add(1)
 		go func(key string) {
 			defer wg.Done()
@@ -496,11 +504,11 @@ func GetTokenRequestStatus(token string) (TokenRequestStatus, error) {
 }
 
 // GetAvailableToken 获取一个可用的token（未在使用中且冷却时间已过）
-func GetAvailableToken() (string, string, bool) {
+func GetAvailableToken() (string, string) {
 	// 获取所有token的key
 	keys, err := config.RedisKeys("token:*")
 	if err != nil || len(keys) == 0 {
-		return "", "", false
+		return "No token", ""
 	}
 
 	// 筛选可用的token
@@ -545,12 +553,12 @@ func GetAvailableToken() (string, string, bool) {
 
 	// 如果没有可用的token
 	if len(availableTokens) == 0 {
-		return "", "", true
+		return "No available token", ""
 	}
 
 	// 随机选择一个token
 	randomIndex := rand.Intn(len(availableTokens))
-	return availableTokens[randomIndex], availableTenantURLs[randomIndex], true
+	return availableTokens[randomIndex], availableTenantURLs[randomIndex]
 }
 
 // getTokenUsageCount 获取token的使用次数

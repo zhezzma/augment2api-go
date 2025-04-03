@@ -50,13 +50,13 @@ func TokenConcurrencyMiddleware() gin.HandlerFunc {
 		}
 
 		// 获取一个可用的token
-		token, tenantURL, exist := api.GetAvailableToken()
-		if !exist {
+		token, tenantURL := api.GetAvailableToken()
+		if token == "No token" {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "当前无可用token，请在页面添加"})
 			c.Abort()
 			return
 		}
-		if token == "" || tenantURL == "" {
+		if token == "No available token" || tenantURL == "" {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "当前请求过多，请稍后再试"})
 			c.Abort()
 			return

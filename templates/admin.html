@@ -7,7 +7,6 @@
     <link rel="icon" href="../static/augment.svg" type="image/svg+xml">
     <link rel="alternate icon" href="../static/augment.svg" type="image/x-icon">
     <style>
-        /* 重新设计的现代化界面样式 */
         :root {
             --primary-color: #4a6cf7;
             --primary-hover: #3a5ce4;
@@ -58,7 +57,6 @@
             padding: 0;
         }
 
-        /* 减少header高度 */
         header {
             background-color: var(--header-bg);
             color: var(--header-color);
@@ -100,7 +98,6 @@
             background-color: var(--primary-hover);
         }
 
-        /* 改进dashboard布局 */
         .dashboard {
             display: flex;
             flex: 1;
@@ -111,7 +108,6 @@
             gap: 15px;
         }
 
-        /* 侧边栏样式优化 */
         .sidebar {
             width: 220px;
             height: 100%;
@@ -149,7 +145,6 @@
             white-space: nowrap;
         }
 
-        /* 修复toggle按钮 */
         .toggle-btn {
             background: transparent;
             border: none;
@@ -620,9 +615,55 @@
             display: none;
         }
 
-        /* 修复按钮图标颜色 */
         button:not(.secondary):not(.pagination-btn):not(.toggle-btn) i {
             color: white;
+        }
+
+        /* 刷新按钮加载动画 */
+        .refresh-btn, #check-all-tokens {
+            position: relative;
+        }
+        
+        .refresh-btn i, #check-all-tokens i {
+            transition: transform 0.3s ease;
+        }
+        
+        .refresh-btn.loading i, #check-all-tokens.loading i {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* 禁用状态 */
+        .refresh-btn.loading, #check-all-tokens.loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        /* 检测结果样式 */
+        .check-result {
+            color: var(--success-color);
+            background-color: rgba(40, 167, 69, 0.1);
+            border: 1px solid var(--success-color);
+            border-radius: var(--radius);
+            padding: 10px 15px;
+            margin: 10px 0;
+            display: none;
+        }
+
+        .doc-link {
+            color: #4a6cf7;
+            margin-left: 15px;
+            text-decoration: none;
+            font-size: 14px;
+            transition: var(--transition);
+        }
+        
+        .doc-link:hover {
+            text-decoration: underline;
         }
     </style>
     <!-- 添加图标 -->
@@ -632,7 +673,8 @@
     <div class="container">
         <header>
             <div class="header-content">
-                <h1>Augment面板｜V1.0.0</h1>
+                <h1>Augment面板｜v1.0.0</h1>
+                <a href="https://2api-docs.pages.dev/page/augment2api/func-intro" class="doc-link" target="_blank">点我访问文档</a>
                 <button id="logout-btn" class="logout-btn">
                     <i class="bi bi-box-arrow-right"></i> 登出
                 </button>
@@ -668,7 +710,9 @@
                         <i class="bi bi-key-fill"></i>
                         <h2>Token列表</h2>
                         <div class="panel-actions">
-                            <button id="refresh-token"><i class="bi bi-arrow-clockwise btn-icon"></i> <span class="btn-text">刷新</span></button>
+                            <button id="refresh-token" class="refresh-btn">
+                                <i class="bi bi-arrow-clockwise"></i> 刷新列表
+                            </button>
                             <button id="check-all-tokens"><i class="bi bi-shield-check btn-icon"></i> <span class="btn-text">批量检测</span></button>
                         </div>
                     </div>
@@ -845,6 +889,10 @@
             
             // 修改获取当前Token列表函数，使用后端分页
             function fetchCurrentToken() {
+                // 显示加载动画
+                const refreshBtn = document.getElementById('refresh-token');
+                refreshBtn.classList.add('loading');
+                
                 // 构建带有分页参数的URL
                 const url = `/api/tokens?page=${currentPage}&page_size=${pageSize}`;
                 
@@ -869,9 +917,11 @@
                 .catch(error => {
                     document.getElementById('token-list').innerHTML = 
                         '<div class="error" style="display:block;">请求失败: ' + error.message + '</div>';
+                })
+                .finally(() => {
+                    // 无论成功还是失败，都移除加载动画
+                    refreshBtn.classList.remove('loading');
                 });
-                
-                return Promise.resolve(); // 确保可以使用.finally()
             }
             
             // 修改渲染token列表函数，使用后端返回的分页信息
@@ -963,13 +1013,7 @@
             
             // 刷新Token按钮事件
             document.getElementById('refresh-token').addEventListener('click', function() {
-                const button = this;
-                button.classList.add('loading');
-                
-                fetchCurrentToken()
-                    .finally(() => {
-                        button.classList.remove('loading');
-                    });
+                fetchCurrentToken();
             });
             
             // 其他事件处理保持不变...

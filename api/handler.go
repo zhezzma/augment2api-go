@@ -124,6 +124,7 @@ type AgentMemory struct {
 type AugmentRequest struct {
 	ChatHistory    []AugmentChatHistory `json:"chat_history"`
 	Message        string               `json:"message"`
+	AgentMemories  string               `json:"agent_memories"`
 	Mode           string               `json:"mode"`
 	Prefix         string               `json:"prefix"`
 	Suffix         string               `json:"suffix"`
@@ -730,6 +731,8 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 	defer resp.Body.Close()
+
+	logger.Log.Info("Augment response code：", resp.StatusCode)
 
 	// 检查响应状态码
 	if resp.StatusCode != http.StatusOK {

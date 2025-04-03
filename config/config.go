@@ -16,6 +16,8 @@ type Config struct {
 	ProxyURL        string
 }
 
+const version = "v1.0.0"
+
 var AppConfig Config
 
 func InitConfig() error {
@@ -47,6 +49,9 @@ func InitConfig() error {
 		logger.Log.Fatalln("未配置环境变量 ACCESS_PWD")
 	}
 
+	// 打印欢迎信息
+	logger.Log.Info("Welcome to use Augment2Api! Current Version: " + version)
+
 	logger.Log.Info("Augment2Api配置加载完成:\n" +
 		"----------------------------------------\n" +
 		"AuthToken:    " + AppConfig.AuthToken + "\n" +
@@ -55,6 +60,8 @@ func InitConfig() error {
 		"RoutePrefix: " + AppConfig.RoutePrefix + "\n" +
 		"ProxyURL: " + AppConfig.ProxyURL + "\n" +
 		"----------------------------------------")
+
+	logger.Log.Info("Everything is set up, now start to fully enjoy the charm of AI ！")
 
 	return nil
 }
