@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -35,8 +36,19 @@ type TokenRequestStatus struct {
 	LastRequestAt time.Time `json:"last_request_at"`
 }
 
-// GetRedisTokenHandler 从Redis获取token列表
+// GetRedisTokenHandler 从Redis获取token列表，支持分页
 func GetRedisTokenHandler(c *gin.Context) {
+	// 获取分页参数（可选）
+	page := c.DefaultQuery("page", "1")
+	pageSize := c.DefaultQuery("page_size", "0") // 0表示不分页，返回所有
+
+	pageNum, _ := strconv.Atoi(page)
+	pageSizeNum, _ := strconv.Atoi(pageSize)
+
+	if pageNum < 1 {
+		pageNum = 1
+	}
+
 	// 获取所有token的key (使用通配符模式)
 	keys, err := config.RedisKeys("token:*")
 	if err != nil {
@@ -50,8 +62,12 @@ func GetRedisTokenHandler(c *gin.Context) {
 	// 如果没有token
 	if len(keys) == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"status": "success",
-			"tokens": []TokenInfo{},
+			"status":      "success",
+			"tokens":      []TokenInfo{},
+			"total":       0,
+			"page":        pageNum,
+			"page_size":   pageSizeNum,
+			"total_pages": 0,
 		})
 		return
 	}
@@ -80,9 +96,40 @@ func GetRedisTokenHandler(c *gin.Context) {
 		})
 	}
 
+	// 计算总页数和分页数据
+	totalItems := len(tokenList)
+	totalPages := 1
+
+	// 如果需要分页
+	if pageSizeNum > 0 {
+		totalPages = (totalItems + pageSizeNum - 1) / pageSizeNum
+
+		// 确保页码有效
+		if pageNum > totalPages && totalPages > 0 {
+			pageNum = totalPages
+		}
+
+		// 计算分页的起始和结束索引
+		startIndex := (pageNum - 1) * pageSizeNum
+		endIndex := startIndex + pageSizeNum
+
+		if startIndex < totalItems {
+			if endIndex > totalItems {
+				endIndex = totalItems
+			}
+			tokenList = tokenList[startIndex:endIndex]
+		} else {
+			tokenList = []TokenInfo{}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"tokens": tokenList,
+		"status":      "success",
+		"tokens":      tokenList,
+		"total":       totalItems,
+		"page":        pageNum,
+		"page_size":   pageSizeNum,
+		"total_pages": totalPages,
 	})
 }
 
