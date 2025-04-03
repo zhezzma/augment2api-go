@@ -231,7 +231,7 @@
             padding: 20px;
             display: none;
             flex: 1;
-            overflow: hidden;
+            overflow-y: auto;
             height: 100%;
             flex-direction: column;
         }
@@ -518,10 +518,12 @@
             
             .main-content {
                 height: calc(100vh - 300px);
+                overflow-y: auto;
             }
             
             .content-panel {
                 padding: 15px;
+                max-height: none;
             }
             
             .sidebar.collapsed .menu-text {
@@ -556,6 +558,7 @@
             display: flex;
             flex-direction: column;
             gap: 25px;
+            padding-bottom: 20px;
         }
 
         .step {
@@ -1084,6 +1087,173 @@
                     .finally(() => {
                         button.classList.remove('loading');
                     });
+            });
+
+            // 获取授权地址按钮事件
+            document.getElementById('get-auth-url').addEventListener('click', function() {
+                const button = this;
+                const btnText = button.querySelector('.btn-text');
+                const originalText = btnText.textContent;
+                
+                // 显示加载状态
+                button.disabled = true;
+                btnText.textContent = '获取中...';
+                
+                // 请求授权地址
+                fetch('/auth')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.authorize_url) {
+                            // 显示授权地址
+                            const authUrlElement = document.getElementById('auth-url');
+                            authUrlElement.textContent = data.authorize_url;
+                            authUrlElement.style.display = 'block';
+                        } else {
+                            alert('获取授权地址失败: ' + (data.error || '未知错误'));
+                        }
+                    })
+                    .catch(error => {
+                        alert('请求失败: ' + error.message);
+                    })
+                    .finally(() => {
+                        // 恢复按钮状态
+                        button.disabled = false;
+                        btnText.textContent = originalText;
+                    });
+            });
+
+            // 验证JSON格式
+            function isValidJSON(str) {
+                try {
+                    JSON.parse(str);
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+
+            // 验证授权响应格式
+            function validateAuthResponse(response) {
+                try {
+                    const data = JSON.parse(response);
+                    // 检查必要字段
+                    if (!data.code || !data.state || !data.tenant_url) {
+                        return { valid: false, message: '缺少必要字段 (code, state, tenant_url)' };
+                    }
+                    return { valid: true, data: data };
+                } catch (e) {
+                    return { valid: false, message: 'JSON格式无效: ' + e.message };
+                }
+            }
+
+            // 提交授权响应按钮事件
+            document.getElementById('submit-auth').addEventListener('click', function() {
+                const button = this;
+                const btnText = button.querySelector('.btn-text');
+                const originalText = btnText.textContent;
+                const responseText = document.getElementById('auth-response').value.trim();
+                const validationMessage = document.getElementById('validation-message');
+                const submitResult = document.getElementById('submit-result');
+                
+                // 重置消息
+                validationMessage.style.display = 'none';
+                submitResult.style.display = 'none';
+                
+                // 验证输入
+                if (!responseText) {
+                    validationMessage.textContent = '请输入授权响应';
+                    validationMessage.style.display = 'block';
+                    return;
+                }
+                
+                // 验证JSON格式
+                if (!isValidJSON(responseText)) {
+                    validationMessage.textContent = 'JSON格式无效，请检查输入';
+                    validationMessage.style.display = 'block';
+                    return;
+                }
+                
+                // 验证授权响应格式
+                const validation = validateAuthResponse(responseText);
+                if (!validation.valid) {
+                    validationMessage.textContent = validation.message;
+                    validationMessage.style.display = 'block';
+                    return;
+                }
+                
+                // 显示加载状态
+                button.disabled = true;
+                btnText.textContent = '处理中...';
+                
+                // 提交授权响应
+                fetch('/callback', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: responseText
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // 显示成功消息
+                            submitResult.textContent = 'Token获取成功！';
+                            submitResult.style.display = 'block';
+                            
+                            // 清空输入框
+                            document.getElementById('auth-response').value = '';
+                            
+                            // 刷新Token列表
+                            setTimeout(() => {
+                                fetchCurrentToken();
+                                
+                                // 切换到Token列表面板
+                                document.querySelector('.menu-item[data-target="token-list-panel"]').click();
+                            }, 1000);
+                        } else {
+                            // 显示错误消息但不影响样式
+                            validationMessage.textContent = '获取Token失败: ' + (data.error || '未知错误');
+                            validationMessage.style.display = 'block';
+                        }
+                    })
+                    .catch(error => {
+                        // 显示错误消息但不影响样式
+                        validationMessage.textContent = '请求失败: ' + error.message;
+                        validationMessage.style.display = 'block';
+                    })
+                    .finally(() => {
+                        // 恢复按钮状态
+                        button.disabled = false;
+                        btnText.textContent = originalText;
+                    });
+            });
+
+            // 为token列表中的删除按钮添加事件委托
+            document.getElementById('token-list').addEventListener('click', function(e) {
+                // 检查点击的是否是删除按钮
+                if (e.target.closest('.delete-token')) {
+                    const deleteBtn = e.target.closest('.delete-token');
+                    const token = deleteBtn.getAttribute('data-token');
+                    
+                    if (confirm('确定要删除此Token吗？')) {
+                        // 发送删除请求
+                        fetch(`/api/token/${encodeURIComponent(token)}`, {
+                            method: 'DELETE'
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    // 刷新token列表
+                                    fetchCurrentToken();
+                                } else {
+                                    alert('删除失败: ' + (data.error || '未知错误'));
+                                }
+                            })
+                            .catch(error => {
+                                alert('请求失败: ' + error.message);
+                            });
+                    }
+                }
             });
         });
     </script>
