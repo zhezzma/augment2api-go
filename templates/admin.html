@@ -357,6 +357,33 @@
             font-size: 13px;
         }
 
+        .token-usage-count {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            background-color: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: 500;
+            margin-left: 10px;
+        }
+
+        /* 根据使用次数变化颜色 */
+        .token-usage-count.low {
+            background-color: #28a745; /* 绿色 - 使用次数少 */
+        }
+        
+        .token-usage-count.medium {
+            background-color: #ffc107; /* 黄色 - 使用次数中等 */
+        }
+        
+        .token-usage-count.high {
+            background-color: #dc3545; /* 红色 - 使用次数多 */
+        }
+
         .token-toggle {
             margin-left: 10px;
             transition: transform 0.3s;
@@ -605,7 +632,7 @@
     <div class="container">
         <header>
             <div class="header-content">
-                <h1>Augment面板</h1>
+                <h1>Augment面板｜V1.0.0</h1>
                 <button id="logout-btn" class="logout-btn">
                     <i class="bi bi-box-arrow-right"></i> 登出
                 </button>
@@ -880,6 +907,18 @@
                     // 计算在当前页中的索引
                     const displayIndex = index + 1 + (currentPage - 1) * pageSize;
                     
+                    // 获取使用次数并设置样式类
+                    const usageCount = tokenInfo.usage_count || 0;
+                    let usageClass = '';
+                    
+                    if (usageCount < 10) {
+                        usageClass = 'low';
+                    } else if (usageCount < 50) {
+                        usageClass = 'medium';
+                    } else {
+                        usageClass = 'high';
+                    }
+                    
                     // 显示完整token，不再截断
                     const tokenItem = document.createElement('div');
                     tokenItem.className = 'token-item';
@@ -887,6 +926,7 @@
                         <div class="token-header">
                             <div class="token-number">${displayIndex}</div>
                             <div class="token-summary">${tokenInfo.token}</div>
+                            <div class="token-usage-count ${usageClass}">${usageCount}</div>
                             <div class="token-toggle"><i class="bi bi-chevron-down"></i></div>
                         </div>
                         <div class="token-details">
@@ -894,6 +934,8 @@
                             <div class="token-display">${tokenInfo.token}</div>
                             <div class="token-label">租户URL:</div>
                             <div class="token-display">${tokenInfo.tenant_url}</div>
+                            <div class="token-label">对话次数:</div>
+                            <div class="token-display">${usageCount}</div>
                             <div class="token-actions">
                                 <button class="delete-token" data-token="${tokenInfo.token}">
                                     <i class="bi bi-trash"></i> 删除

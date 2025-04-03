@@ -2,6 +2,7 @@ package api
 
 import (
 	"augment2api/config"
+	"augment2api/pkg/logger"
 	"bufio"
 	"crypto/sha256"
 	"encoding/json"
@@ -690,6 +691,9 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 
+	// 增加token使用计数
+	incrementTokenUsage(token)
+
 	// 准备请求数据
 	jsonData, err := json.Marshal(augmentReq)
 	if err != nil {
@@ -862,6 +866,9 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 		return
 	}
 
+	// 增加token使用计数
+	incrementTokenUsage(token)
+
 	// 准备请求数据
 	jsonData, err := json.Marshal(augmentReq)
 	if err != nil {
@@ -1026,4 +1033,14 @@ func createHTTPClient() *http.Client {
 	}
 
 	return client
+}
+
+// 在处理聊天请求时增加token使用计数
+func incrementTokenUsage(token string) {
+	countKey := "token_usage:" + token
+	// 使用Redis的INCR命令增加计数
+	err := config.RedisIncr(countKey)
+	if err != nil {
+		logger.Log.Error("增加token使用计数失败: %v", err)
+	}
 }

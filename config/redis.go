@@ -92,3 +92,10 @@ func RedisExists(key string) (bool, error) {
 	}
 	return result > 0, nil
 }
+
+// RedisIncr 增加Redis中的计数器
+func RedisIncr(key string) error {
+	ctx := context.Background()
+	_, err := RDB.Incr(ctx, key).Result()
+	return err
+}

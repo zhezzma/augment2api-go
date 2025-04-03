@@ -20,8 +20,9 @@ import (
 
 // TokenInfo 存储token信息
 type TokenInfo struct {
-	Token     string `json:"token"`
-	TenantURL string `json:"tenant_url"`
+	Token      string `json:"token"`
+	TenantURL  string `json:"tenant_url"`
+	UsageCount int    `json:"usage_count"` // 添加对话次数字段
 }
 
 // TokenItem token项结构
@@ -90,9 +91,11 @@ func GetRedisTokenHandler(c *gin.Context) {
 			continue // 跳过被标记为不可用的token
 		}
 
+		// 在获取token信息时，同时获取对话次数
 		tokenList = append(tokenList, TokenInfo{
-			Token:     token,
-			TenantURL: tenantURL,
+			Token:      token,
+			TenantURL:  tenantURL,
+			UsageCount: getTokenUsageCount(token), // 获取对话次数
 		})
 	}
 
@@ -548,4 +551,22 @@ func GetAvailableToken() (string, string, bool) {
 	// 随机选择一个token
 	randomIndex := rand.Intn(len(availableTokens))
 	return availableTokens[randomIndex], availableTenantURLs[randomIndex], true
+}
+
+// getTokenUsageCount 获取token的使用次数
+func getTokenUsageCount(token string) int {
+	// 使用Redis中的计数器获取使用次数
+	countKey := "token_usage:" + token
+	count, err := config.RedisGet(countKey)
+	if err != nil {
+		return 0 // 如果出错或不存在，返回0
+	}
+
+	// 将字符串转换为整数
+	countInt, err := strconv.Atoi(count)
+	if err != nil {
+		return 0
+	}
+
+	return countInt
 }
