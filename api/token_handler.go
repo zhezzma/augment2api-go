@@ -20,10 +20,12 @@ import (
 
 // TokenInfo 存储token信息
 type TokenInfo struct {
-	Token      string `json:"token"`
-	TenantURL  string `json:"tenant_url"`
-	UsageCount int    `json:"usage_count"` // 添加对话次数字段
-	Remark     string `json:"remark"`      // 添加备注字段
+	Token           string `json:"token"`
+	TenantURL       string `json:"tenant_url"`
+	UsageCount      int    `json:"usage_count"`       // 总对话次数
+	ChatUsageCount  int    `json:"chat_usage_count"`  // CHAT模式对话次数
+	AgentUsageCount int    `json:"agent_usage_count"` // AGENT模式对话次数
+	Remark          string `json:"remark"`            // 备注字段
 }
 
 // TokenItem token项结构
@@ -97,10 +99,12 @@ func GetRedisTokenHandler(c *gin.Context) {
 
 		// 在获取token信息时，同时获取对话次数和备注
 		tokenList = append(tokenList, TokenInfo{
-			Token:      token,
-			TenantURL:  tenantURL,
-			UsageCount: getTokenUsageCount(token),
-			Remark:     remark,
+			Token:           token,
+			TenantURL:       tenantURL,
+			UsageCount:      getTokenUsageCount(token),
+			ChatUsageCount:  getTokenChatUsageCount(token),
+			AgentUsageCount: getTokenAgentUsageCount(token),
+			Remark:          remark,
 		})
 	}
 
@@ -211,7 +215,8 @@ func DeleteTokenHandler(c *gin.Context) {
 		return
 	}
 
-	// 删除TOKEN关联的使用次数（如果存在）
+	// 删除token关联的使用次数（如果存在）
+	// 删除总使用次数
 	tokenUsageKey := "token_usage:" + token
 	exists, err = config.RedisExists(tokenUsageKey)
 	if err != nil {
@@ -228,6 +233,20 @@ func DeleteTokenHandler(c *gin.Context) {
 				"error":  "删除token使用次数失败: " + err.Error(),
 			})
 		}
+	}
+
+	// 删除CHAT模式使用次数
+	tokenChatUsageKey := "token_usage_chat:" + token
+	exists, err = config.RedisExists(tokenChatUsageKey)
+	if err == nil && exists {
+		config.RedisDel(tokenChatUsageKey)
+	}
+
+	// 删除AGENT模式使用次数
+	tokenAgentUsageKey := "token_usage_agent:" + token
+	exists, err = config.RedisExists(tokenAgentUsageKey)
+	if err == nil && exists {
+		config.RedisDel(tokenAgentUsageKey)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -299,7 +318,7 @@ func CheckTokenTenantURL(token string) (string, error) {
 		"prefix":               "You are AI assistant,help me to solve problems!",
 		"suffix":               " ",
 		"lang":                 "HTML",
-		"user_guidelines":      "You are a helpful assistant, you can help me to solve problems.",
+		"user_guidelines":      "You are a helpful assistant, you can help me to solve problems and always answer in Chinese.",
 		"workspace_guidelines": "",
 		"feature_detection_flags": map[string]interface{}{
 			"support_raw_output": true,
@@ -580,6 +599,20 @@ func GetAvailableToken() (string, string) {
 			continue
 		}
 
+		// 检查CHAT模式和AGENT模式的使用次数限制
+		chatUsageCount := getTokenChatUsageCount(token)
+		agentUsageCount := getTokenAgentUsageCount(token)
+
+		// 如果CHAT模式已达到3000次限制，跳过
+		if chatUsageCount >= 3000 {
+			continue
+		}
+
+		// 如果AGENT模式已达到50次限制，跳过
+		if agentUsageCount >= 50 {
+			continue
+		}
+
 		// 获取对应的tenant_url
 		tenantURL, err := config.RedisHGet(key, "tenant_url")
 		if err != nil {
@@ -604,6 +637,42 @@ func GetAvailableToken() (string, string) {
 func getTokenUsageCount(token string) int {
 	// 使用Redis中的计数器获取使用次数
 	countKey := "token_usage:" + token
+	count, err := config.RedisGet(countKey)
+	if err != nil {
+		return 0 // 如果出错或不存在，返回0
+	}
+
+	// 将字符串转换为整数
+	countInt, err := strconv.Atoi(count)
+	if err != nil {
+		return 0
+	}
+
+	return countInt
+}
+
+// getTokenChatUsageCount 获取token的CHAT模式使用次数
+func getTokenChatUsageCount(token string) int {
+	// 使用Redis中的计数器获取使用次数
+	countKey := "token_usage_chat:" + token
+	count, err := config.RedisGet(countKey)
+	if err != nil {
+		return 0 // 如果出错或不存在，返回0
+	}
+
+	// 将字符串转换为整数
+	countInt, err := strconv.Atoi(count)
+	if err != nil {
+		return 0
+	}
+
+	return countInt
+}
+
+// getTokenAgentUsageCount 获取token的AGENT模式使用次数
+func getTokenAgentUsageCount(token string) int {
+	// 使用Redis中的计数器获取使用次数
+	countKey := "token_usage_agent:" + token
 	count, err := config.RedisGet(countKey)
 	if err != nil {
 		return 0 // 如果出错或不存在，返回0

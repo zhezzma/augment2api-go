@@ -109,7 +109,7 @@
         }
 
         .sidebar {
-            width: 220px;
+            width: 200px;
             height: 100%;
             background-color: var(--sidebar-bg);
             color: var(--sidebar-color);
@@ -122,7 +122,7 @@
         }
 
         .sidebar.collapsed {
-            width: 100px;
+            width: 80px;
         }
 
         .sidebar.collapsed .sidebar-header h3 {
@@ -155,7 +155,12 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: transform 0.3s;
+            transition: transform 0.3s, background-color 0.2s;
+            border-radius: 4px;
+        }
+
+        .toggle-btn:hover {
+            background-color: #f1f1f1;
         }
 
         .sidebar.collapsed .toggle-btn {
@@ -739,6 +744,30 @@
             justify-content: flex-end;
             gap: 10px;
         }
+
+        /* Token模糊化样式 */
+        .token-blur {
+            filter: blur(5px);
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        
+        /* 鼠标悬停时取消模糊 */
+        .token-blur:hover {
+            filter: none;
+        }
+        
+        /* 模糊按钮样式 */
+        #toggle-token-visibility.active {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        #toggle-token-visibility.active i {
+            color: white;
+        }
     </style>
     <!-- 添加图标 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
@@ -783,6 +812,9 @@
                         <i class="bi bi-key-fill"></i>
                         <h2>Token列表</h2>
                         <div class="panel-actions">
+                            <button id="toggle-token-visibility" class="secondary">
+                                <i class="bi bi-eye-slash"></i> 隐藏Token
+                            </button>
                             <button id="refresh-token" class="refresh-btn">
                                 <i class="bi bi-arrow-clockwise"></i> 刷新列表
                             </button>
@@ -1044,11 +1076,14 @@
                     
                     // 获取使用次数并设置样式类
                     const usageCount = tokenInfo.usage_count || 0;
+                    const chatUsageCount = tokenInfo.chat_usage_count || 0;
+                    const agentUsageCount = tokenInfo.agent_usage_count || 0;
                     let usageClass = '';
                     
-                    if (usageCount < 10) {
+                    // 根据CHAT和AGENT模式的使用次数来确定样式类
+                    if (chatUsageCount < 1000 && agentUsageCount < 20) {
                         usageClass = 'low';
-                    } else if (usageCount < 50) {
+                    } else if (chatUsageCount < 2000 && agentUsageCount < 40) {
                         usageClass = 'medium';
                     } else {
                         usageClass = 'high';
@@ -1064,7 +1099,9 @@
                                 ${tokenInfo.token}
                                 <span class="token-remark${!tokenInfo.remark ? ' empty' : ''}" data-token="${tokenInfo.token}" data-remark="${tokenInfo.remark || ''}">${tokenInfo.remark || '添加备注'}</span>
                             </div>
-                            <div class="token-usage-count ${usageClass}">对话次数: ${usageCount} 次</div>
+                            <div class="token-usage-count ${usageClass}">
+                                CHAT使用: ${chatUsageCount} 次 | AGENT使用: ${agentUsageCount} 次
+                            </div>
                             <div class="token-toggle"><i class="bi bi-chevron-down"></i></div>
                         </div>
                         <div class="token-details">
@@ -1072,8 +1109,6 @@
                             <div class="token-display">${tokenInfo.token}</div>
                             <div class="token-label">租户URL:</div>
                             <div class="token-display">${tokenInfo.tenant_url}</div>
-                            <div class="token-label">对话次数:</div>
-                            <div class="token-display">${usageCount}</div>
                             <div class="token-actions">
                                 <button class="delete-token" data-token="${tokenInfo.token}">
                                     <i class="bi bi-trash"></i> 删除
@@ -1411,6 +1446,51 @@
 
             // 初始加载token列表
             fetchCurrentToken();
+            
+            // 添加Token隐藏/显示功能
+            let tokenVisible = true;
+            const toggleTokenVisibilityBtn = document.getElementById('toggle-token-visibility');
+            
+            toggleTokenVisibilityBtn.addEventListener('click', function() {
+                tokenVisible = !tokenVisible;
+                
+                // 更新按钮状态和文本
+                if (tokenVisible) {
+                    this.innerHTML = '<i class="bi bi-eye-slash"></i> 隐藏Token';
+                    this.classList.remove('active');
+                } else {
+                    this.innerHTML = '<i class="bi bi-eye"></i> 显示Token';
+                    this.classList.add('active');
+                }
+                
+                // 应用模糊效果到所有Token展示区域
+                applyTokenVisibility();
+            });
+            
+            // 应用Token可见性设置到列表中
+            function applyTokenVisibility() {
+                // 获取所有Token显示元素
+                const tokenElements = document.querySelectorAll('.token-summary, .token-display');
+                
+                tokenElements.forEach(element => {
+                    if (tokenVisible) {
+                        element.classList.remove('token-blur');
+                    } else {
+                        element.classList.add('token-blur');
+                    }
+                });
+            }
+            
+            // 在渲染Token列表后应用可见性设置
+            const originalRenderTokenList = renderTokenList;
+            renderTokenList = function(totalItems, totalPages) {
+                originalRenderTokenList(totalItems, totalPages);
+                
+                // 如果当前状态是隐藏的，则应用模糊效果
+                if (!tokenVisible) {
+                    applyTokenVisibility();
+                }
+            };
         });
     </script>
 </body>

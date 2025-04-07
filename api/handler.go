@@ -232,14 +232,34 @@ func generatePath() string {
 
 // convertToAugmentRequest 将OpenAI请求转换为Augment请求
 func convertToAugmentRequest(req OpenAIRequest) AugmentRequest {
+	// 确定模式和其他参数基于模型名称
+	mode := "AGENT" // 默认模式
+	userGuideLines := "使用中文回答，不要调用任何工具，联网搜索类问题请根据你的已有知识回答"
+	includeToolDefinitions := true
+	includeDefaultPrompt := true
+
+	// 将模型名称转换为小写，然后检查后缀
+	modelLower := strings.ToLower(req.Model)
+
+	// 检查模型名称后缀 (不区分大小写)
+	if strings.HasSuffix(modelLower, "-chat") {
+		mode = "CHAT"
+		userGuideLines = "使用中文回答"
+		includeToolDefinitions = false
+		includeDefaultPrompt = false
+	} else if strings.HasSuffix(modelLower, "-agent") {
+		// 保持默认设置
+		mode = "AGENT"
+	}
+
 	augmentReq := AugmentRequest{
 		Path:           "",                  // 这个是关联的项目文件路径，暂时传空，不影响对话
-		Mode:           "AGENT",             // 固定为Agent模式，CHAT模式大概率会使用垃圾模型回复
+		Mode:           mode,                // 根据模型名称决定模式
 		Prefix:         defaultPrefix,       // 固定前缀，影响模型回复风格
 		Suffix:         " ",                 // 固定后缀，暂时传空，不影响对话
 		Lang:           detectLanguage(req), // 简单检测当前对话语言类型，不传好像回答有问题
 		Message:        "",                  // 当前对话消息
-		UserGuideLines: "使用中文回答，不要调用任何工具，联网搜索类问题请根据你的已有知识回答",
+		UserGuideLines: userGuideLines,      // 根据模型类型设置指南
 		// 初始化为空列表
 		ChatHistory: make([]AugmentChatHistory, 0),
 		Blobs: struct {
@@ -258,8 +278,13 @@ func convertToAugmentRequest(req OpenAIRequest) AugmentRequest {
 		}{
 			SupportRawOutput: true,
 		},
-		ToolDefinitions: getFullToolDefinitions(), // 官方固定工具定义
+		ToolDefinitions: []ToolDefinition{}, // 初始化为空
 		Nodes:           make([]Node, 0),
+	}
+
+	// 根据模型类型决定是否包含工具定义
+	if includeToolDefinitions {
+		augmentReq.ToolDefinitions = getFullToolDefinitions()
 	}
 
 	// 处理消息历史
@@ -299,7 +324,11 @@ func convertToAugmentRequest(req OpenAIRequest) AugmentRequest {
 	// 设置当前消息
 	if len(req.Messages) > 0 {
 		lastMsg := req.Messages[len(req.Messages)-1]
-		augmentReq.Message = defaultPrompt + "\n" + lastMsg.GetContent()
+		if includeDefaultPrompt {
+			augmentReq.Message = defaultPrompt + "\n" + lastMsg.GetContent()
+		} else {
+			augmentReq.Message = lastMsg.GetContent()
+		}
 	}
 
 	return augmentReq
@@ -693,7 +722,7 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 	}
 
 	// 增加token使用计数
-	incrementTokenUsage(token)
+	incrementTokenUsage(token, model)
 
 	// 准备请求数据
 	jsonData, err := json.Marshal(augmentReq)
@@ -870,7 +899,7 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 	}
 
 	// 增加token使用计数
-	incrementTokenUsage(token)
+	incrementTokenUsage(token, model)
 
 	// 准备请求数据
 	jsonData, err := json.Marshal(augmentReq)
@@ -1039,11 +1068,32 @@ func createHTTPClient() *http.Client {
 }
 
 // 在处理聊天请求时增加token使用计数
-func incrementTokenUsage(token string) {
-	countKey := "token_usage:" + token
+func incrementTokenUsage(token string, model string) {
+	// 先将模型名称转换为小写
+	modelLower := strings.ToLower(model)
+
+	// 根据模型类型确定计数键 (不区分大小写)
+	var countKey string
+	if strings.HasSuffix(modelLower, "-chat") {
+		countKey = "token_usage_chat:" + token
+	} else if strings.HasSuffix(modelLower, "-agent") {
+		countKey = "token_usage_agent:" + token
+	} else {
+		countKey = "token_usage:" + token // 默认键
+	}
+
 	// 使用Redis的INCR命令增加计数
 	err := config.RedisIncr(countKey)
 	if err != nil {
 		logger.Log.Error("增加token使用计数失败: %v", err)
+	}
+
+	// 同时增加总使用计数
+	totalCountKey := "token_usage:" + token
+	if countKey != totalCountKey { // 避免重复计数
+		err = config.RedisIncr(totalCountKey)
+		if err != nil {
+			logger.Log.Error("增加token总使用计数失败: %v", err)
+		}
 	}
 }

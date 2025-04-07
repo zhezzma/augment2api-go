@@ -16,7 +16,7 @@ type Config struct {
 	ProxyURL        string
 }
 
-const version = "v1.0.0"
+const version = "v1.0.2"
 
 var AppConfig Config
 
