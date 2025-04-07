@@ -189,6 +189,9 @@ func setupRouter() *gin.Engine {
 	// 删除token - 需要会话验证
 	r.DELETE("/api/token/:token", api.AuthTokenMiddleware(), api.DeleteTokenHandler)
 
+	// 更新token备注 - 需要会话验证
+	r.PUT("/api/token/:token/remark", api.AuthTokenMiddleware(), api.UpdateTokenRemark)
+
 	// 批量检测token - 需要会话验证
 	r.GET("/api/check-tokens", api.AuthTokenMiddleware(), api.CheckAllTokensHandler)
 
@@ -260,6 +263,13 @@ func main() {
 	err = config.InitRedisClient()
 	if err != nil {
 		logger.Log.Fatalln("failed to initialize Redis: " + err.Error())
+	}
+
+	// token备注字段迁移
+	err = api.MigrateTokensRemark()
+
+	if err != nil {
+		logger.Log.Error("Token备注字段迁移失败: %v", err)
 	}
 
 	r := setupRouter()

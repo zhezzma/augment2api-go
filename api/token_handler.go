@@ -23,6 +23,7 @@ type TokenInfo struct {
 	Token      string `json:"token"`
 	TenantURL  string `json:"tenant_url"`
 	UsageCount int    `json:"usage_count"` // 添加对话次数字段
+	Remark     string `json:"remark"`      // 添加备注字段
 }
 
 // TokenItem token项结构
@@ -91,11 +92,15 @@ func GetRedisTokenHandler(c *gin.Context) {
 			continue // 跳过被标记为不可用的token
 		}
 
-		// 在获取token信息时，同时获取对话次数
+		// 获取备注信息
+		remark, _ := config.RedisHGet(key, "remark")
+
+		// 在获取token信息时，同时获取对话次数和备注
 		tokenList = append(tokenList, TokenInfo{
 			Token:      token,
 			TenantURL:  tenantURL,
-			UsageCount: getTokenUsageCount(token), // 获取对话次数
+			UsageCount: getTokenUsageCount(token),
+			Remark:     remark,
 		})
 	}
 
@@ -141,14 +146,29 @@ func SaveTokenToRedis(token, tenantURL string) error {
 	// 创建一个唯一的key，包含token和tenant_url
 	tokenKey := "token:" + token
 
+	// token已存在，则跳过
+	exists, err := config.RedisExists(tokenKey)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
 	// 将tenant_url存储在token对应的哈希表中
-	err := config.RedisHSet(tokenKey, "tenant_url", tenantURL)
+	err = config.RedisHSet(tokenKey, "tenant_url", tenantURL)
 	if err != nil {
 		return err
 	}
 
 	// 默认将新添加的token标记为活跃状态
-	return config.RedisHSet(tokenKey, "status", "active")
+	err = config.RedisHSet(tokenKey, "status", "active")
+	if err != nil {
+		return err
+	}
+
+	// 初始化备注为空字符串
+	return config.RedisHSet(tokenKey, "remark", "")
 }
 
 // DeleteTokenHandler 删除指定的token
@@ -189,6 +209,25 @@ func DeleteTokenHandler(c *gin.Context) {
 			"error":  "删除token失败: " + err.Error(),
 		})
 		return
+	}
+
+	// 删除TOKEN关联的使用次数（如果存在）
+	tokenUsageKey := "token_usage:" + token
+	exists, err = config.RedisExists(tokenUsageKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": "error",
+			"error":  "检查token使用次数失败: " + err.Error(),
+		})
+		return
+	}
+	if exists {
+		if err := config.RedisDel(tokenUsageKey); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": "error",
+				"error":  "删除token使用次数失败: " + err.Error(),
+			})
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -577,4 +616,92 @@ func getTokenUsageCount(token string) int {
 	}
 
 	return countInt
+}
+
+// UpdateTokenRemark 更新token的备注信息
+func UpdateTokenRemark(c *gin.Context) {
+	token := c.Param("token")
+	if token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": "error",
+			"error":  "未指定token",
+		})
+		return
+	}
+
+	var req struct {
+		Remark string `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": "error",
+			"error":  "无效的请求数据",
+		})
+		return
+	}
+
+	tokenKey := "token:" + token
+
+	// 检查token是否存在
+	exists, err := config.RedisExists(tokenKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": "error",
+			"error":  "检查token失败: " + err.Error(),
+		})
+		return
+	}
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"status": "error",
+			"error":  "token不存在",
+		})
+		return
+	}
+
+	// 更新备注
+	err = config.RedisHSet(tokenKey, "remark", req.Remark)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": "error",
+			"error":  "更新备注失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+	})
+}
+
+// MigrateTokensRemark 确保所有token都有remark字段
+func MigrateTokensRemark() error {
+	// 获取所有token的key
+	keys, err := config.RedisKeys("token:*")
+	if err != nil {
+		return fmt.Errorf("获取token列表失败: %v", err)
+	}
+
+	for _, key := range keys {
+		// 检查是否已有remark字段
+		exists, err := config.RedisHExists(key, "remark")
+		if err != nil {
+			logger.Log.Error("check remark field of token %s failed: %v", key, err)
+			continue
+		}
+
+		// 如果没有remark字段，添加一个空的remark
+		if !exists {
+			err = config.RedisHSet(key, "remark", "")
+			if err != nil {
+				logger.Log.Error("add remark field to token %s failed: %v", key, err)
+				continue
+			}
+			logger.Log.Info("add remark field to token %s success", key)
+		}
+	}
+	logger.Log.Info("migrate remark field to all tokens success!")
+
+	return nil
 }

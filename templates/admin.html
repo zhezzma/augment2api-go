@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Augment2Api-面板</title>
+    <title>Augment2Api-Panel</title>
     <link rel="icon" href="../static/augment.svg" type="image/svg+xml">
     <link rel="alternate icon" href="../static/augment.svg" type="image/x-icon">
     <style>
@@ -350,33 +350,64 @@
             overflow: hidden;
             text-overflow: ellipsis;
             font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .token-remark {
+            background-color: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: system-ui;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .token-remark:hover {
+            border-color: #1976d2;
+        }
+
+        .token-remark.empty {
+            background-color: #f5f5f5;
+            color: #9e9e9e;
+        }
+
+        .token-remark input {
+            background: none;
+            border: none;
+            outline: none;
+            font-size: inherit;
+            font-family: inherit;
+            color: inherit;
+            width: 100%;
+            min-width: 100px;
         }
 
         .token-usage-count {
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 28px;
-            height: 28px;
-            background-color: var(--primary-color);
-            color: white;
-            border-radius: 50%;
-            font-size: 12px;
+            color: #4a6cf7;
+            font-size: 13px;
             font-weight: 500;
             margin-left: 10px;
         }
 
         /* 根据使用次数变化颜色 */
         .token-usage-count.low {
-            background-color: #28a745; /* 绿色 - 使用次数少 */
+            color: #28a745; /* 绿色 - 使用次数少 */
         }
         
         .token-usage-count.medium {
-            background-color: #ffc107; /* 黄色 - 使用次数中等 */
+            color: #ffc107; /* 黄色 - 使用次数中等 */
         }
         
         .token-usage-count.high {
-            background-color: #dc3545; /* 红色 - 使用次数多 */
+            color: #dc3545; /* 红色 - 使用次数多 */
         }
 
         .token-toggle {
@@ -657,16 +688,56 @@
             display: none;
         }
 
-        .doc-link {
-            color: #4a6cf7;
-            margin-left: 15px;
-            text-decoration: none;
-            font-size: 14px;
-            transition: var(--transition);
+
+        /* 弹出输入框样式 */
+        .remark-input-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
         }
-        
-        .doc-link:hover {
-            text-decoration: underline;
+
+        .remark-input-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            width: 250px;
+        }
+
+        .remark-input-container h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: var(--text-color);
+        }
+
+        .remark-input-container input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .remark-input-container .char-count {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 15px;
+            text-align: right;
+        }
+
+        .remark-input-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
         }
     </style>
     <!-- 添加图标 -->
@@ -676,8 +747,7 @@
     <div class="container">
         <header>
             <div class="header-content">
-                <h1>Augment面板｜v1.0.0</h1>
-                <a href="https://2api-docs.pages.dev/page/augment2api/func-intro" class="doc-link" target="_blank">点我访问文档</a>
+                <h1>Augment面板｜v1.0.2</h1>
                 <button id="logout-btn" class="logout-btn">
                     <i class="bi bi-box-arrow-right"></i> 登出
                 </button>
@@ -768,7 +838,7 @@
         
         <!-- 添加页脚 -->
         <footer>
-            Designed by <a href="https://linux.do/u/bifang/summary" target="_blank">彼方</a>
+            <a href="https://linux.do/u/bifang/summary" target="_blank">开发者：彼方</a> | <a href="https://2api-docs.pages.dev/page/augment2api/func-intro" target="_blank">文档中心</a>
         </footer>
     </div>
 
@@ -894,14 +964,25 @@
             function fetchCurrentToken() {
                 // 显示加载动画
                 const refreshBtn = document.getElementById('refresh-token');
+                const tokenListElement = document.getElementById('token-list');
                 refreshBtn.classList.add('loading');
                 
-                // 构建带有分页参数的URL
-                const url = `/api/tokens?page=${currentPage}&page_size=${pageSize}`;
+                // 设置超时处理
+                const timeoutId = setTimeout(() => {
+                    refreshBtn.classList.remove('loading');
+                    tokenListElement.innerHTML = '<div class="error" style="display:block;">请求超时,请重试</div>';
+                }, 10000); // 10秒超时
                 
-                fetch(url)
-                .then(response => response.json())
+                fetch('/api/tokens?page=${currentPage}&page_size=${pageSize}')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    clearTimeout(timeoutId); // 清除超时定时器
+                    
                     if (data.status === 'success') {
                         // 使用后端返回的token列表
                         allTokens = data.tokens || [];
@@ -914,15 +995,16 @@
                         // 渲染token列表和分页控件
                         renderTokenList(totalItems, totalPages);
                     } else {
-                        showError('获取Token列表失败: ' + (data.error || '未知错误'));
+                        tokenListElement.innerHTML = 
+                            '<div class="error" style="display:block;">获取Token列表失败: ' + (data.error || '未知错误') + '</div>';
                     }
                 })
                 .catch(error => {
-                    document.getElementById('token-list').innerHTML = 
+                    clearTimeout(timeoutId); // 清除超时定时器
+                    tokenListElement.innerHTML = 
                         '<div class="error" style="display:block;">请求失败: ' + error.message + '</div>';
                 })
                 .finally(() => {
-                    // 无论成功还是失败，都移除加载动画
                     refreshBtn.classList.remove('loading');
                 });
             }
@@ -978,8 +1060,11 @@
                     tokenItem.innerHTML = `
                         <div class="token-header">
                             <div class="token-number">${displayIndex}</div>
-                            <div class="token-summary">${tokenInfo.token}</div>
-                            <div class="token-usage-count ${usageClass}">${usageCount}</div>
+                            <div class="token-summary">
+                                ${tokenInfo.token}
+                                <span class="token-remark${!tokenInfo.remark ? ' empty' : ''}" data-token="${tokenInfo.token}" data-remark="${tokenInfo.remark || ''}">${tokenInfo.remark || '添加备注'}</span>
+                            </div>
+                            <div class="token-usage-count ${usageClass}">对话次数: ${usageCount} 次</div>
                             <div class="token-toggle"><i class="bi bi-chevron-down"></i></div>
                         </div>
                         <div class="token-details">
@@ -999,11 +1084,84 @@
                     
                     listContainer.appendChild(tokenItem);
                     
-                    // 添加点击事件
+                    // 添加事件处理
                     const header = tokenItem.querySelector('.token-header');
                     const details = tokenItem.querySelector('.token-details');
                     const toggle = tokenItem.querySelector('.token-toggle');
+                    const remarkSpan = tokenItem.querySelector('.token-remark');
                     
+                    // 为备注添加点击事件
+                    remarkSpan.addEventListener('click', function(e) {
+                        e.stopPropagation(); // 阻止事件冒泡到header
+                        
+                        const token = this.dataset.token;
+                        const currentRemark = this.dataset.remark;
+                        
+                        // 创建弹出层
+                        const modal = document.createElement('div');
+                        modal.className = 'remark-input-modal';
+                        
+                        modal.innerHTML = `
+                            <div class="remark-input-container">
+                                <h3>编辑备注</h3>
+                                <input type="text" maxlength="30" placeholder="请输入备注（30字以内）" value="${currentRemark}">
+                                <div class="char-count"><span>${currentRemark.length}</span>/30</div>
+                                <div class="remark-input-actions">
+                                    <button class="secondary" onclick="this.closest('.remark-input-modal').remove()">取消</button>
+                                    <button class="save-remark" data-token="${token}">保存</button>
+                                </div>
+                            </div>
+                        `;
+                        
+                        document.body.appendChild(modal);
+                        
+                        // 获取输入框并聚焦
+                        const input = modal.querySelector('input');
+                        input.focus();
+                        
+                        // 更新字符计数
+                        input.addEventListener('input', () => {
+                            const count = input.value.length;
+                            modal.querySelector('.char-count span').textContent = count;
+                        });
+                        
+                        // 点击背景关闭弹窗
+                        modal.addEventListener('click', (e) => {
+                            if (e.target === modal) {
+                                modal.remove();
+                            }
+                        });
+                        
+                        // 处理保存按钮点击
+                        modal.querySelector('.save-remark').addEventListener('click', async function() {
+                            const token = this.dataset.token;
+                            const newRemark = input.value.trim();
+                            
+                            try {
+                                const response = await fetch(`/api/token/${token}/remark`, {
+                                    method: 'PUT',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ remark: newRemark })
+                                });
+                                
+                                const data = await response.json();
+                                if (data.status === 'success') {
+                                    // 关闭弹窗
+                                    modal.remove();
+                                    // 刷新列表
+                                    fetchCurrentToken();
+                                } else {
+                                    alert('更新备注失败: ' + (data.error || '未知错误'));
+                                }
+                            } catch (error) {
+                                alert('请求失败: ' + error.message);
+                            }
+                        });
+                    });
+                    
+                    // 为header添加点击事件（展开/折叠详情）
                     header.addEventListener('click', function() {
                         details.classList.toggle('open');
                         toggle.classList.toggle('open');
@@ -1011,15 +1169,38 @@
                 });
             }
             
-            // 初始加载
-            fetchCurrentToken();
-            
+            // 为token列表添加事件委托,只处理删除按钮
+            document.getElementById('token-list').addEventListener('click', function(e) {
+                // 检查点击的是否是删除按钮
+                if (e.target.closest('.delete-token')) {
+                    const deleteBtn = e.target.closest('.delete-token');
+                    const token = deleteBtn.getAttribute('data-token');
+                    
+                    if (confirm('确定要删除此Token吗？')) {
+                        // 发送删除请求
+                        fetch(`/api/token/${encodeURIComponent(token)}`, {
+                            method: 'DELETE'
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    // 刷新token列表
+                                    fetchCurrentToken();
+                                } else {
+                                    alert('删除失败: ' + (data.error || '未知错误'));
+                                }
+                            })
+                            .catch(error => {
+                                alert('请求失败: ' + error.message);
+                            });
+                    }
+                }
+            });
+
             // 刷新Token按钮事件
             document.getElementById('refresh-token').addEventListener('click', function() {
                 fetchCurrentToken();
             });
-            
-            // 其他事件处理保持不变...
 
             // 添加登出处理逻辑
             document.getElementById('logout-btn').addEventListener('click', function() {
@@ -1228,33 +1409,8 @@
                     });
             });
 
-            // 为token列表中的删除按钮添加事件委托
-            document.getElementById('token-list').addEventListener('click', function(e) {
-                // 检查点击的是否是删除按钮
-                if (e.target.closest('.delete-token')) {
-                    const deleteBtn = e.target.closest('.delete-token');
-                    const token = deleteBtn.getAttribute('data-token');
-                    
-                    if (confirm('确定要删除此Token吗？')) {
-                        // 发送删除请求
-                        fetch(`/api/token/${encodeURIComponent(token)}`, {
-                            method: 'DELETE'
-                        })
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.status === 'success') {
-                                    // 刷新token列表
-                                    fetchCurrentToken();
-                                } else {
-                                    alert('删除失败: ' + (data.error || '未知错误'));
-                                }
-                            })
-                            .catch(error => {
-                                alert('请求失败: ' + error.message);
-                            });
-                    }
-                }
-            });
+            // 初始加载token列表
+            fetchCurrentToken();
         });
     </script>
 </body>

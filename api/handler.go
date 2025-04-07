@@ -622,16 +622,16 @@ func ModelsHandler(c *gin.Context) {
 		Object: "list",
 		Data: []ModelObject{
 			{
-				ID:      "claude-3-7-sonnet-20250219",
-				Object:  "model",
-				Created: 1708387201,
-				OwnedBy: "anthropic",
-			},
-			{
-				ID:      "claude-3.7",
+				ID:      "claude-3.7-agent",
 				Object:  "model",
 				Created: 1708387200,
 				OwnedBy: "anthropic",
+			},
+			{
+				ID:      "augment-chat",
+				Object:  "model",
+				Created: 1708387200,
+				OwnedBy: "augment",
 			},
 		},
 	}

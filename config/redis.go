@@ -99,3 +99,9 @@ func RedisIncr(key string) error {
 	_, err := RDB.Incr(ctx, key).Result()
 	return err
 }
+
+// RedisHExists 检查哈希表字段是否存在
+func RedisHExists(key, field string) (bool, error) {
+	ctx := context.Background()
+	return RDB.HExists(ctx, key, field).Result()
+}
