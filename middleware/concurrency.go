@@ -3,12 +3,14 @@ package middleware
 import (
 	"augment2api/api"
 	"augment2api/config"
+	"augment2api/pkg/logger"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 // 全局锁映射，用于控制每个 token 的并发请求
@@ -80,6 +82,10 @@ func TokenConcurrencyMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		logger.Log.WithFields(logrus.Fields{
+			"token": token,
+		}).Info("本次请求使用的token: ")
 
 		// 在请求完成后释放锁
 		c.Set("token_lock", lock)

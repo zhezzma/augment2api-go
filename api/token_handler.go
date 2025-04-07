@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 // TokenInfo 存储token信息
@@ -368,12 +369,7 @@ func CheckTokenTenantURL(token string) (string, error) {
 
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
-		userAgents := []string{
-			"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) GoLand/2024.3.5",
-			"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5",
-			"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) PyCharm/2024.3.5",
-		}
-		req.Header.Set("User-Agent", userAgents[rand.Intn(len(userAgents))])
+		req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
 		req.Header.Set("x-api-version", "2")
 		req.Header.Set("x-request-id", uuid.New().String())
 		req.Header.Set("x-request-session-id", uuid.New().String())
@@ -406,7 +402,10 @@ func CheckTokenTenantURL(token string) (string, error) {
 					if err != nil {
 						fmt.Printf("标记token为不可用失败: %v\n", err)
 					}
-					logger.Log.Info("token: %s 已被标记为不可用,返回401未授权,错误信息: %s\n", token, responseBody)
+					logger.Log.WithFields(logrus.Fields{
+						"token":         token,
+						"response_body": responseBody,
+					}).Info("token: 已被标记为不可用,返回401未授权")
 					isInvalid = true
 				}
 				return
@@ -428,7 +427,10 @@ func CheckTokenTenantURL(token string) (string, error) {
 					if err != nil {
 						fmt.Printf("标记token为可用失败: %v\n", err)
 					}
-					logger.Log.Info("token: %s ,更新租户地址成功: %s\n", token, tenantURL)
+					logger.Log.WithFields(logrus.Fields{
+						"token":          token,
+						"new_tenant_url": tenantURL,
+					}).Info("token: 更新租户地址成功")
 					tenantURLResult = tenantURL
 					foundValid = true
 				}
@@ -498,7 +500,11 @@ func CheckAllTokensHandler(c *gin.Context) {
 
 			// 检测租户地址
 			newTenantURL, err := CheckTokenTenantURL(token)
-			logger.Log.Info("token: %s ,当前租户地址: %s ,检测租户地址: %s\n", token, oldTenantURL, newTenantURL)
+			logger.Log.WithFields(logrus.Fields{
+				"token":          token,
+				"old_tenant_url": oldTenantURL,
+				"new_tenant_url": newTenantURL,
+			}).Info("检测token租户地址")
 
 			mu.Lock()
 			if err != nil && err.Error() == "token被标记为不可用" {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 // OpenAIRequest OpenAI兼容的请求结构
@@ -731,9 +732,6 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 
-	// 打印请求参数
-	//log.Printf("对话请求参数: %s", string(jsonData))
-
 	// 创建请求
 	req, err := http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
 	if err != nil {
@@ -743,25 +741,64 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
-	userAgents := []string{
-		"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) GoLand/2024.3.5",
-		"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5",
-		"augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) PyCharm/2024.3.5",
-	}
-	req.Header.Set("User-Agent", userAgents[rand.Intn(len(userAgents))])
+	req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
 	req.Header.Set("x-api-version", "2")
 	req.Header.Set("x-request-id", uuid.New().String())
 	req.Header.Set("x-request-session-id", uuid.New().String())
 
+	// 使用createHTTPClient创建客户端
 	client := createHTTPClient()
-	resp, err := client.Do(req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+
+	// 设置刷新器以确保数据立即发送
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "流式传输不支持"})
 		return
 	}
-	defer resp.Body.Close()
 
-	logger.Log.Info("Augment response code：", resp.StatusCode)
+	// 第一次尝试使用原始模式请求
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Log.WithFields(logrus.Fields{
+			"error": err.Error(),
+			"mode":  augmentReq.Mode,
+		}).Error("请求失败")
+
+		// 切换到CHAT模式
+		augmentReq.Mode = "CHAT"
+		augmentReq.UserGuideLines = "使用中文回答"
+		augmentReq.ToolDefinitions = []ToolDefinition{}
+
+		// 重新准备请求数据
+		jsonData, err = json.Marshal(augmentReq)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化请求失败"})
+			return
+		}
+
+		// 创建新的请求
+		req, err = http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
+			return
+		}
+
+		// 设置相同的请求头
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+		req.Header.Set("x-api-version", "2")
+		req.Header.Set("x-request-id", uuid.New().String())
+		req.Header.Set("x-request-session-id", uuid.New().String())
+
+		// 重新发送请求
+		resp, err = client.Do(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+			return
+		}
+	}
+	defer resp.Body.Close()
 
 	// 检查响应状态码
 	if resp.StatusCode != http.StatusOK {
@@ -774,25 +811,81 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 
-	// 设置刷新器以确保数据立即发送
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "流式传输不支持"})
-		return
-	}
-
 	// 读取并转发响应
 	reader := bufio.NewReader(resp.Body)
 	responseID := fmt.Sprintf("chatcmpl-%d", time.Now().Unix())
 
 	var fullText string
+	var hasError bool
+
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-			log.Printf("读取响应失败: %v", err)
+			logger.Log.WithFields(logrus.Fields{
+				"error": err.Error(),
+				"mode":  augmentReq.Mode,
+			}).Error("读取响应失败")
+
+			// 切换到CHAT模式
+			if augmentReq.Mode != "CHAT" {
+				logger.Log.WithFields(logrus.Fields{
+					"error": err.Error(),
+					"mode":  augmentReq.Mode,
+				}).Info("切换到CHAT模式")
+
+				// 切换到CHAT模式
+				augmentReq.Mode = "CHAT"
+				augmentReq.UserGuideLines = "使用中文回答"
+				augmentReq.ToolDefinitions = []ToolDefinition{}
+
+				// 重新准备请求数据
+				jsonData, err = json.Marshal(augmentReq)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化请求失败"})
+					return
+				}
+
+				// 创建新的请求
+				req, err = http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
+					return
+				}
+
+				// 设置相同的请求头
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+				req.Header.Set("x-api-version", "2")
+				req.Header.Set("x-request-id", uuid.New().String())
+				req.Header.Set("x-request-session-id", uuid.New().String())
+
+				// 重新发送请求
+				resp, err = client.Do(req)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+					return
+				}
+				defer resp.Body.Close()
+
+				// 检查响应状态码
+				if resp.StatusCode != http.StatusOK {
+					body, err := io.ReadAll(resp.Body)
+					errMsg := "Augment response error"
+					if err == nil {
+						errMsg = errMsg + ": " + string(body)
+					}
+					c.JSON(resp.StatusCode, gin.H{"error": errMsg})
+					return
+				}
+
+				// 重新设置reader
+				reader = bufio.NewReader(resp.Body)
+				continue
+			}
 			break
 		}
 
@@ -805,6 +898,12 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		if err := json.Unmarshal([]byte(line), &augmentResp); err != nil {
 			log.Printf("解析响应失败: %v", err)
 			continue
+		}
+
+		// 检查响应内容是否包含错误信息
+		if strings.Contains(augmentResp.Text, "Request blocked. Please reach out to support@augmentcode.com if you think this was a mistake.") {
+			hasError = true
+			break
 		}
 
 		fullText += augmentResp.Text
@@ -848,6 +947,129 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 			fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
 			flusher.Flush()
 			break
+		}
+	}
+
+	// 如果检测到错误信息，尝试切换到CHAT模式重新请求
+	if hasError && augmentReq.Mode != "CHAT" {
+		logger.Log.WithFields(logrus.Fields{
+			"mode": augmentReq.Mode,
+		}).Info("检测到block信息，尝试切换到 CHAT 模式回复！")
+
+		// 切换到CHAT模式
+		augmentReq.Mode = "CHAT"
+		augmentReq.UserGuideLines = "使用中文回答"
+		augmentReq.ToolDefinitions = []ToolDefinition{}
+
+		// 重新准备请求数据
+		jsonData, err = json.Marshal(augmentReq)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化请求失败"})
+			return
+		}
+
+		// 创建新的请求
+		req, err = http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
+			return
+		}
+
+		// 设置相同的请求头
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+		req.Header.Set("x-api-version", "2")
+		req.Header.Set("x-request-id", uuid.New().String())
+		req.Header.Set("x-request-session-id", uuid.New().String())
+
+		// 重新发送请求
+		resp, err = client.Do(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		// 检查响应状态码
+		if resp.StatusCode != http.StatusOK {
+			body, err := io.ReadAll(resp.Body)
+			errMsg := "Augment response error"
+			if err == nil {
+				errMsg = errMsg + ": " + string(body)
+			}
+			c.JSON(resp.StatusCode, gin.H{"error": errMsg})
+			return
+		}
+
+		// 读取并转发响应
+		reader = bufio.NewReader(resp.Body)
+		responseID = fmt.Sprintf("chatcmpl-%d", time.Now().Unix())
+
+		fullText = ""
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Printf("读取响应失败: %v", err)
+				break
+			}
+
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			var augmentResp AugmentResponse
+			if err := json.Unmarshal([]byte(line), &augmentResp); err != nil {
+				log.Printf("解析响应失败: %v", err)
+				continue
+			}
+
+			fullText += augmentResp.Text
+
+			// 创建OpenAI兼容的流式响应
+			streamResp := OpenAIStreamResponse{
+				ID:      responseID,
+				Object:  "chat.completion.chunk",
+				Created: time.Now().Unix(),
+				Model:   model,
+				Choices: []StreamChoice{
+					{
+						Index: 0,
+						Delta: ChatMessage{
+							Role:    "assistant",
+							Content: augmentResp.Text,
+						},
+						FinishReason: nil,
+					},
+				},
+			}
+
+			// 如果是最后一条消息，设置完成原因
+			if augmentResp.Done {
+				finishReason := "stop"
+				streamResp.Choices[0].FinishReason = &finishReason
+			}
+
+			// 序列化并发送响应
+			jsonResp, err := json.Marshal(streamResp)
+			if err != nil {
+				log.Printf("序列化响应失败: %v", err)
+				continue
+			}
+
+			fmt.Fprintf(c.Writer, "data: %s\n\n", jsonResp)
+			flusher.Flush()
+
+			// 如果完成，发送最后的[DONE]标记
+			if augmentResp.Done {
+				fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+				flusher.Flush()
+				break
+			}
 		}
 	}
 }

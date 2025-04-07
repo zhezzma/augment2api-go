@@ -267,10 +267,12 @@ func main() {
 
 	// token备注字段迁移
 	err = api.MigrateTokensRemark()
-
 	if err != nil {
 		logger.Log.Error("Token备注字段迁移失败: %v", err)
 	}
+
+	// 启动token使用次数重置调度器
+	go api.StartTokenUsageResetScheduler()
 
 	r := setupRouter()
 
