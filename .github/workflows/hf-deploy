@@ -27,6 +27,13 @@ jobs:
             echo "未找到 Dockerfile"
           fi
 
+          if [ -f main.go ]; then
+            sed -i 's/:27080/:7860/g' main.go
+            echo "main.go 已更新: 端口从 27080 更改为 7860"
+          else
+            echo "未找到 Dockerfile"
+          fi
+
       # 克隆 HF Space 仓库并复制文件
       - name: Clone HF Space
         run: |
