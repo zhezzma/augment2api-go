@@ -699,13 +699,37 @@ func ChatCompletionsHandler(c *gin.Context) {
 	handleNonStreamRequest(c, augmentReq, req.Model)
 }
 
+// 异步处理token使用计数
+func asyncIncrementTokenUsage(token string, model string) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Log.WithFields(logrus.Fields{
+					"error": r,
+					"token": token,
+					"model": model,
+				}).Error("system err")
+			}
+		}()
+
+		// 增加token使用计数
+		incrementTokenUsage(token, model)
+	}()
+}
+
 // 处理流式请求
 func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string) {
-	defer cleanupRequestStatus(c)
-
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Log.WithFields(logrus.Fields{
+				"error": r,
+				"model": model,
+			}).Error("处理流式请求时发生panic")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
+		}
+		// 函数返回时同步清理请求状态
+		cleanupRequestStatus(c)
+	}()
 
 	// 从上下文中获取token和tenant_url
 	tokenInterface, exists := c.Get("token")
@@ -728,8 +752,8 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 
-	// 增加token使用计数
-	incrementTokenUsage(token, model)
+	// 异步处理token使用计数
+	asyncIncrementTokenUsage(token, model)
 
 	// 准备请求数据
 	jsonData, err := json.Marshal(augmentReq)
@@ -1117,7 +1141,16 @@ func estimateTokenCount(text string) int {
 
 // 处理非流式请求
 func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string) {
-	defer cleanupRequestStatus(c)
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Log.WithFields(logrus.Fields{
+				"error": r,
+				"model": model,
+			}).Error("处理非流式请求时发生panic")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
+		}
+		cleanupRequestStatus(c) // 确保在函数返回时同步清理请求状态
+	}()
 
 	// 从上下文中获取token和tenant_url
 	tokenInterface, exists := c.Get("token")
@@ -1140,8 +1173,8 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 		return
 	}
 
-	// 增加token使用计数
-	incrementTokenUsage(token, model)
+	// 异步处理token使用计数
+	asyncIncrementTokenUsage(token, model)
 
 	// 准备请求数据
 	jsonData, err := json.Marshal(augmentReq)
@@ -1269,6 +1302,14 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 
 // 清理请求状态
 func cleanupRequestStatus(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Log.WithFields(logrus.Fields{
+				"error": r,
+			}).Error("清理请求状态时发生panic")
+		}
+	}()
+
 	// 获取锁和 token
 	lockInterface, exists := c.Get("token_lock")
 	if !exists {
@@ -1300,7 +1341,9 @@ func cleanupRequestStatus(c *gin.Context) {
 	defer lock.Unlock()
 
 	if err != nil {
-		log.Printf("清理请求状态失败: %v", err)
+		logger.Log.WithFields(logrus.Fields{
+			"error": err.Error(),
+		}).Error("清理请求状态失败")
 		return
 	}
 }
@@ -1339,6 +1382,11 @@ func incrementTokenUsage(token string, model string) {
 		countKey = "token_usage_agent:" + token
 	} else {
 		countKey = "token_usage:" + token // 默认键
+		// 非特定结尾的模型，增加chat计数
+		err := config.RedisIncr("token_usage_chat:" + token)
+		if err != nil {
+			logger.Log.Error("增加token chat使用计数失败: %v", err)
+		}
 	}
 
 	// 使用Redis的INCR命令增加计数
