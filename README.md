@@ -5,8 +5,8 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 ## 使用须知
 
 - 使用本项目可能导致您的账号被标记、风控或封禁，请自行承担风险！
-- 默认使用`Agent`模式，屏蔽所有工具调用，使用模型原生能力回答，否则对话会被工具调用截断
-- 默认添加并发控制，单Token`3秒`内最多请求 `1次`
+- 默认根据传入模型名称确定使用使用模式，`AGENT模式`下屏蔽所有工具调用，使用模型原生能力回答，否则对话会被工具调用截断
+- 默认添加并发控制，单Token`3秒`内最多请求 `1次`,默认添加`Block Token`冷却规则
 - `Augment`的`Agent`模式很强，推荐你在编辑器中使用官方插件，体验不输`Cursor`
 
 # 问题反馈
@@ -22,6 +22,15 @@ Augment2Api 是一个用于连接 Augment API 的中间层服务，提供 OpenAI
 - 支持 Redis 存储 Token
 - 支持批量检测Token和租户地址并更新
 - 支持接口批量添加Token
+
+## 支持模型
+```bash
+传入模型名称以 -chat 结尾,使用CHAT模式回复
+
+传入模型名称以 -agent 结尾,使用AGENT模式回复
+
+其他模型名称默认使用CHAT模式
+```
 
 ## 环境变量配置
 
@@ -93,13 +102,16 @@ docker-compose up -d
 
 ### 2. 获取Token
 
-访问 `http://ip:27080/` 进入管理页面登录页,输入访问密码进入管理页面
-<img width="1576" alt="image" src="https://img.imgdd.com/0ec2052c-1210-4026-98fa-4a55cdc80e8d.png" />
+
+https://img.imgdd.com/d3c389de-c894-4c1a-9b2e-2bc1c28b0f03.png
+访问 `http://ip:27080/` 进入管理页面登录页,输入访问密码进入管理面板，点击`添加TOENN`菜单
+<img width="1576" alt="image" src="https://img.imgdd.com/d3c389de-c894-4c1a-9b2e-2bc1c28b0f03.png" />
 
 1. 点击获取授权链接
 2. 复制授权链接到浏览器中打开
 3. 使用邮箱进行登录（域名邮箱也可）
-4. 复制`augment code`到授权响应输入框中，点击获取token
+4. 复制`augment code`到授权响应输入框中，点击获取token，TOKEN列表中正常出现数据
+<img width="1576" alt="image" src="https://img.imgdd.com/8d7949fe-e9ee-41ad-bebd-2e56e8c7737f.png" />
 5. 开始对话测试
 
 提示：
