@@ -396,22 +396,22 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #4a6cf7;
+            color: var(--text-color);
             font-size: 13px;
             font-weight: 500;
             margin-left: 10px;
         }
 
-        /* 根据使用次数变化颜色 */
-        .token-usage-count.low {
+        /* 根据使用次数变化颜色 - 只应用于数字 */
+        .token-usage-count .low {
             color: #28a745; /* 绿色 - 使用次数少 */
         }
         
-        .token-usage-count.medium {
+        .token-usage-count .medium {
             color: #ffc107; /* 黄色 - 使用次数中等 */
         }
         
-        .token-usage-count.high {
+        .token-usage-count .high {
             color: #dc3545; /* 红色 - 使用次数多 */
         }
 
@@ -747,26 +747,53 @@
 
         /* Token模糊化样式 */
         .token-blur {
-            filter: blur(5px);
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
-            user-select: none;
+            filter: blur(3px);
+            transition: all 0.3s ease;
         }
-        
-        /* 鼠标悬停时取消模糊 */
+
         .token-blur:hover {
-            filter: none;
+            filter: blur(0);
         }
-        
-        /* 模糊按钮样式 */
-        #toggle-token-visibility.active {
-            background-color: var(--primary-color);
-            color: white;
-        }
-        
+
+        /* 删除背景颜色变化样式 */
         #toggle-token-visibility.active i {
-            color: white;
+            color: var(--primary-color);
+        }
+        
+        /* 冷却状态图标样式 */
+        .cool-status {
+            color: #1e88e5;
+            font-size: 18px;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+        
+        .cool-status-tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .cool-status-tooltip .tooltip-text {
+            visibility: hidden;
+            width: 200px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 12px;
+        }
+        
+        .cool-status-tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
         }
     </style>
     <!-- 添加图标 -->
@@ -1005,7 +1032,7 @@
                     tokenListElement.innerHTML = '<div class="error" style="display:block;">请求超时,请重试</div>';
                 }, 10000); // 10秒超时
                 
-                fetch('/api/tokens?page=${currentPage}&page_size=${pageSize}')
+                fetch(`/api/tokens?page=${currentPage}&page_size=${pageSize}`)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
@@ -1098,9 +1125,14 @@
                             <div class="token-summary">
                                 ${tokenInfo.token}
                                 <span class="token-remark${!tokenInfo.remark ? ' empty' : ''}" data-token="${tokenInfo.token}" data-remark="${tokenInfo.remark || ''}">${tokenInfo.remark || '添加备注'}</span>
+                                ${tokenInfo.in_cool ? `
+                                <span class="cool-status-tooltip">
+                                    <i class="bi bi-snow cool-status"></i>
+                                    <span class="tooltip-text">冷却中，直到: ${new Date(tokenInfo.cool_end).toLocaleString()}</span>
+                                </span>` : ''}
                             </div>
-                            <div class="token-usage-count ${usageClass}">
-                                CHAT使用: ${chatUsageCount} 次 | AGENT使用: ${agentUsageCount} 次
+                            <div class="token-usage-count">
+                                CHAT使用:&nbsp;&nbsp; <span class="${usageClass}">${chatUsageCount}</span>&nbsp;&nbsp;次 | AGENT使用:&nbsp;&nbsp; <span class="${usageClass}">${agentUsageCount}</span>&nbsp;&nbsp;次
                             </div>
                             <div class="token-toggle"><i class="bi bi-chevron-down"></i></div>
                         </div>

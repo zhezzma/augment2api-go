@@ -21,12 +21,14 @@ import (
 
 // TokenInfo 存储token信息
 type TokenInfo struct {
-	Token           string `json:"token"`
-	TenantURL       string `json:"tenant_url"`
-	UsageCount      int    `json:"usage_count"`       // 总对话次数
-	ChatUsageCount  int    `json:"chat_usage_count"`  // CHAT模式对话次数
-	AgentUsageCount int    `json:"agent_usage_count"` // AGENT模式对话次数
-	Remark          string `json:"remark"`            // 备注字段
+	Token           string    `json:"token"`
+	TenantURL       string    `json:"tenant_url"`
+	UsageCount      int       `json:"usage_count"`        // 总对话次数
+	ChatUsageCount  int       `json:"chat_usage_count"`   // CHAT模式对话次数
+	AgentUsageCount int       `json:"agent_usage_count"`  // AGENT模式对话次数
+	Remark          string    `json:"remark"`             // 备注字段
+	InCool          bool      `json:"in_cool"`            // 是否在冷却中
+	CoolEnd         time.Time `json:"cool_end,omitempty"` // 冷却结束时间
 }
 
 // TokenItem token项结构
@@ -39,6 +41,12 @@ type TokenItem struct {
 type TokenRequestStatus struct {
 	InProgress    bool      `json:"in_progress"`
 	LastRequestAt time.Time `json:"last_request_at"`
+}
+
+// TokenCoolStatus 记录 token 冷却状态
+type TokenCoolStatus struct {
+	InCool  bool      `json:"in_cool"`
+	CoolEnd time.Time `json:"cool_end"`
 }
 
 // GetRedisTokenHandler 从Redis获取token列表，支持分页
@@ -98,7 +106,10 @@ func GetRedisTokenHandler(c *gin.Context) {
 		// 获取备注信息
 		remark, _ := config.RedisHGet(key, "remark")
 
-		// 在获取token信息时，同时获取对话次数和备注
+		// 获取token的冷却状态
+		coolStatus, _ := GetTokenCoolStatus(token)
+
+		// 在获取token信息时，同时获取对话次数、备注和冷却状态
 		tokenList = append(tokenList, TokenInfo{
 			Token:           token,
 			TenantURL:       tenantURL,
@@ -106,6 +117,8 @@ func GetRedisTokenHandler(c *gin.Context) {
 			ChatUsageCount:  getTokenChatUsageCount(token),
 			AgentUsageCount: getTokenAgentUsageCount(token),
 			Remark:          remark,
+			InCool:          coolStatus.InCool,
+			CoolEnd:         coolStatus.CoolEnd,
 		})
 	}
 
@@ -567,6 +580,57 @@ func GetTokenRequestStatus(token string) (TokenRequestStatus, error) {
 	return status, nil
 }
 
+// SetTokenCoolStatus 将token加入冷却队列
+func SetTokenCoolStatus(token string, duration time.Duration) error {
+	// 使用Redis存储token冷却状态
+	key := "token_cool_status:" + token
+
+	coolStatus := TokenCoolStatus{
+		InCool:  true,
+		CoolEnd: time.Now().Add(duration),
+	}
+
+	// 将状态转换为JSON
+	coolStatusJSON, err := json.Marshal(coolStatus)
+	if err != nil {
+		return err
+	}
+
+	// 存储到Redis，设置过期时间与冷却时间相同
+	return config.RedisSet(key, string(coolStatusJSON), duration)
+}
+
+// GetTokenCoolStatus 获取token冷却状态
+func GetTokenCoolStatus(token string) (TokenCoolStatus, error) {
+	key := "token_cool_status:" + token
+
+	// 从Redis获取状态
+	coolStatusJSON, err := config.RedisGet(key)
+	if err != nil {
+		// 如果key不存在，返回默认状态
+		if errors.Is(err, redis.Nil) {
+			return TokenCoolStatus{
+				InCool:  false,
+				CoolEnd: time.Time{}, // 零值时间
+			}, nil
+		}
+		return TokenCoolStatus{}, err
+	}
+
+	// 解析JSON
+	var coolStatus TokenCoolStatus
+	if err := json.Unmarshal([]byte(coolStatusJSON), &coolStatus); err != nil {
+		return TokenCoolStatus{}, err
+	}
+
+	// 检查冷却时间是否已过
+	if time.Now().After(coolStatus.CoolEnd) {
+		coolStatus.InCool = false
+	}
+
+	return coolStatus, nil
+}
+
 // GetAvailableToken 获取一个可用的token（未在使用中且冷却时间已过）
 func GetAvailableToken() (string, string) {
 	// 获取所有token的key
@@ -578,6 +642,8 @@ func GetAvailableToken() (string, string) {
 	// 筛选可用的token
 	var availableTokens []string
 	var availableTenantURLs []string
+	var cooldownTokens []string
+	var cooldownTenantURLs []string
 
 	for _, key := range keys {
 		// 获取token状态
@@ -625,18 +691,39 @@ func GetAvailableToken() (string, string) {
 			continue
 		}
 
-		availableTokens = append(availableTokens, token)
-		availableTenantURLs = append(availableTenantURLs, tenantURL)
+		// 检查token是否在冷却中
+		coolStatus, err := GetTokenCoolStatus(token)
+		if err != nil {
+			continue
+		}
+
+		// 如果token在冷却中，放入冷却队列
+		if coolStatus.InCool {
+			cooldownTokens = append(cooldownTokens, token)
+			cooldownTenantURLs = append(cooldownTenantURLs, tenantURL)
+		} else {
+			// 否则放入可用队列
+			availableTokens = append(availableTokens, token)
+			availableTenantURLs = append(availableTenantURLs, tenantURL)
+		}
 	}
 
-	// 如果没有可用的token
-	if len(availableTokens) == 0 {
-		return "No available token", ""
+	// 优先从可用队列中选择token
+	if len(availableTokens) > 0 {
+		// 随机选择一个token
+		randomIndex := rand.Intn(len(availableTokens))
+		return availableTokens[randomIndex], availableTenantURLs[randomIndex]
 	}
 
-	// 随机选择一个token
-	randomIndex := rand.Intn(len(availableTokens))
-	return availableTokens[randomIndex], availableTenantURLs[randomIndex]
+	// 如果没有非冷却token可用，则从冷却队列中选择
+	if len(cooldownTokens) > 0 {
+		// 随机选择一个token
+		randomIndex := rand.Intn(len(cooldownTokens))
+		return cooldownTokens[randomIndex], cooldownTenantURLs[randomIndex]
+	}
+
+	// 如果没有任何可用的token
+	return "No available token", ""
 }
 
 // getTokenUsageCount 获取token的使用次数

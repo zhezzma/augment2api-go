@@ -187,6 +187,11 @@ var (
 	tenantURL   string
 )
 
+const (
+	// 错误信息
+	errBlocked = "Request blocked. Please reach out to support@augmentcode.com if you think this was a mistake."
+)
+
 // SetAuthInfo 设置认证信息
 func SetAuthInfo(token, tenant string) {
 	accessToken = token
@@ -234,23 +239,24 @@ func generatePath() string {
 // convertToAugmentRequest 将OpenAI请求转换为Augment请求
 func convertToAugmentRequest(req OpenAIRequest) AugmentRequest {
 	// 确定模式和其他参数基于模型名称
-	mode := "AGENT" // 默认模式
-	userGuideLines := "使用中文回答，不要调用任何工具，联网搜索类问题请根据你的已有知识回答"
-	includeToolDefinitions := true
-	includeDefaultPrompt := true
+	mode := "CHAT" // 默认使用CHAT模式
+	userGuideLines := "must answer in Chinese."
+	includeToolDefinitions := false
+	includeDefaultPrompt := false
 
 	// 将模型名称转换为小写，然后检查后缀
 	modelLower := strings.ToLower(req.Model)
 
 	// 检查模型名称后缀 (不区分大小写)
 	if strings.HasSuffix(modelLower, "-chat") {
+		// 保持使用CHAT模式的默认设置
 		mode = "CHAT"
-		userGuideLines = "使用中文回答"
-		includeToolDefinitions = false
-		includeDefaultPrompt = false
 	} else if strings.HasSuffix(modelLower, "-agent") {
-		// 保持默认设置
+		// 使用AGENT模式
 		mode = "AGENT"
+		userGuideLines = "Answer in Chinese, do not use any tools, and for questions involving internet searches, please answer based on your existing knowledge."
+		includeToolDefinitions = true
+		includeDefaultPrompt = true
 	}
 
 	augmentReq := AugmentRequest{
@@ -836,7 +842,6 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 					"mode":  augmentReq.Mode,
 				}).Info("切换到CHAT模式")
 
-				// 切换到CHAT模式
 				augmentReq.Mode = "CHAT"
 				augmentReq.UserGuideLines = "使用中文回答"
 				augmentReq.ToolDefinitions = []ToolDefinition{}
@@ -901,8 +906,23 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		}
 
 		// 检查响应内容是否包含错误信息
-		if strings.Contains(augmentResp.Text, "Request blocked. Please reach out to support@augmentcode.com if you think this was a mistake.") {
+		if strings.Contains(augmentResp.Text, errBlocked) {
 			hasError = true
+
+			// 将当前token加入冷却队列，冷却时间10分钟
+			logger.Log.WithFields(logrus.Fields{
+				"token": token,
+				"mode":  augmentReq.Mode,
+			}).Info("检测到block信息，将token加入冷却队列10分钟")
+
+			err := SetTokenCoolStatus(token, 10*time.Minute)
+			if err != nil {
+				logger.Log.WithFields(logrus.Fields{
+					"token": token,
+					"error": err.Error(),
+				}).Error("将token加入冷却队列失败")
+			}
+
 			break
 		}
 
@@ -1188,6 +1208,23 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 		}
 
 		fullText += augmentResp.Text
+
+		// 检查响应内容是否包含错误信息
+		if strings.Contains(augmentResp.Text, errBlocked) {
+			// 将当前token加入冷却队列，冷却时间10分钟
+			logger.Log.WithFields(logrus.Fields{
+				"token": token,
+				"mode":  augmentReq.Mode,
+			}).Info("检测到block信息，将token加入冷却队列10分钟")
+
+			err := SetTokenCoolStatus(token, 10*time.Minute)
+			if err != nil {
+				logger.Log.WithFields(logrus.Fields{
+					"token": token,
+					"error": err.Error(),
+				}).Error("将token加入冷却队列失败")
+			}
+		}
 
 		if augmentResp.Done {
 			break
