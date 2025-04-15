@@ -4,6 +4,7 @@ import (
 	"augment2api/config"
 	"augment2api/pkg/logger"
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -762,19 +763,35 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		return
 	}
 
+	// 提取主机部分
+	parsedURL, err := url.Parse(tenant)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析租户URL失败"})
+		return
+	}
+	hostName := parsedURL.Host
+
 	// 创建请求
-	req, err := http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+	requestURL := tenant + "chat-stream"
+	req, err := http.NewRequest("POST", requestURL, bytes.NewReader(jsonData))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
 		return
 	}
 
+	// 设置请求头
+	req.Header.Set("Host", hostName)
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+	req.Header.Set("User-Agent", "augment.intellij/0.184.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
 	req.Header.Set("x-api-version", "2")
-	req.Header.Set("x-request-id", uuid.New().String())
-	req.Header.Set("x-request-session-id", uuid.New().String())
+
+	// 生成请求ID和会话ID
+	requestID := uuid.New().String()
+	sessionID := uuid.New().String()
+	req.Header.Set("x-request-id", requestID)
+	req.Header.Set("x-request-session-id", sessionID)
 
 	// 使用createHTTPClient创建客户端
 	client := createHTTPClient()
@@ -807,19 +824,21 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		}
 
 		// 创建新的请求
-		req, err = http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+		req, err = http.NewRequest("POST", requestURL, bytes.NewReader(jsonData))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
 			return
 		}
 
 		// 设置相同的请求头
+		req.Header.Set("Host", hostName)
+		req.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+		req.Header.Set("User-Agent", "augment.intellij/0.184.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
 		req.Header.Set("x-api-version", "2")
-		req.Header.Set("x-request-id", uuid.New().String())
-		req.Header.Set("x-request-session-id", uuid.New().String())
+		req.Header.Set("x-request-id", requestID)
+		req.Header.Set("x-request-session-id", sessionID)
 
 		// 重新发送请求
 		resp, err = client.Do(req)
@@ -840,6 +859,9 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		c.JSON(resp.StatusCode, gin.H{"error": errMsg})
 		return
 	}
+
+	// 异步记录会话事件
+	asyncRecordSessionEvent(token, tenant, requestID, sessionID)
 
 	// 读取并转发响应
 	reader := bufio.NewReader(resp.Body)
@@ -878,19 +900,21 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 				}
 
 				// 创建新的请求
-				req, err = http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+				req, err = http.NewRequest("POST", requestURL, bytes.NewReader(jsonData))
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
 					return
 				}
 
 				// 设置相同的请求头
+				req.Header.Set("Host", hostName)
+				req.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("Authorization", "Bearer "+token)
-				req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+				req.Header.Set("User-Agent", "augment.intellij/0.184.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
 				req.Header.Set("x-api-version", "2")
-				req.Header.Set("x-request-id", uuid.New().String())
-				req.Header.Set("x-request-session-id", uuid.New().String())
+				req.Header.Set("x-request-id", requestID)
+				req.Header.Set("x-request-session-id", sessionID)
 
 				// 重新发送请求
 				resp, err = client.Do(req)
@@ -1013,19 +1037,21 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 		}
 
 		// 创建新的请求
-		req, err = http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+		req, err = http.NewRequest("POST", requestURL, bytes.NewReader(jsonData))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
 			return
 		}
 
 		// 设置相同的请求头
+		req.Header.Set("Host", hostName)
+		req.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("User-Agent", "augment.intellij/0.160.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+		req.Header.Set("User-Agent", "augment.intellij/0.184.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
 		req.Header.Set("x-api-version", "2")
-		req.Header.Set("x-request-id", uuid.New().String())
-		req.Header.Set("x-request-session-id", uuid.New().String())
+		req.Header.Set("x-request-id", requestID)
+		req.Header.Set("x-request-session-id", sessionID)
 
 		// 重新发送请求
 		resp, err = client.Do(req)
@@ -1045,6 +1071,9 @@ func handleStreamRequest(c *gin.Context, augmentReq AugmentRequest, model string
 			c.JSON(resp.StatusCode, gin.H{"error": errMsg})
 			return
 		}
+
+		// 异步记录会话事件
+		asyncRecordSessionEvent(token, tenant, requestID, sessionID)
 
 		// 读取并转发响应
 		reader = bufio.NewReader(resp.Body)
@@ -1183,19 +1212,35 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 		return
 	}
 
-	// 打印请求参数
-	//log.Printf("发送到远程接口的请求参数: %s", string(jsonData))
+	// 提取主机部分
+	parsedURL, err := url.Parse(tenant)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析租户URL失败"})
+		return
+	}
+	hostName := parsedURL.Host
 
-	// 创建请求 - 使用获取到的tenant_url
-	req, err := http.NewRequest("POST", tenant+"chat-stream", strings.NewReader(string(jsonData)))
+	// 创建请求
+	requestURL := tenant + "chat-stream"
+	req, err := http.NewRequest("POST", requestURL, bytes.NewReader(jsonData))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败"})
 		return
 	}
 
+	// 设置请求头
+	req.Header.Set("Host", hostName)
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
 	req.Header.Set("Content-Type", "application/json")
-	// 使用获取到的token
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", "augment.intellij/0.184.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+	req.Header.Set("x-api-version", "2")
+
+	// 生成请求ID和会话ID
+	requestID := uuid.New().String()
+	sessionID := uuid.New().String()
+	req.Header.Set("x-request-id", requestID)
+	req.Header.Set("x-request-session-id", sessionID)
 
 	client := createHTTPClient()
 	resp, err := client.Do(req)
@@ -1215,6 +1260,9 @@ func handleNonStreamRequest(c *gin.Context, augmentReq AugmentRequest, model str
 		c.JSON(resp.StatusCode, gin.H{"error": errMsg})
 		return
 	}
+
+	// 异步记录会话事件
+	asyncRecordSessionEvent(token, tenant, requestID, sessionID)
 
 	// 读取完整响应
 	reader := bufio.NewReader(resp.Body)
@@ -1367,6 +1415,93 @@ func createHTTPClient() *http.Client {
 	}
 
 	return client
+}
+
+// 异步记录用户会话事件
+func asyncRecordSessionEvent(token, tenantURL, requestID, sessionID string) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Log.WithFields(logrus.Fields{
+					"error":      r,
+					"token":      token,
+					"tenant_url": tenantURL,
+				}).Error("记录会话事件时发生panic")
+			}
+		}()
+
+		// 提取主机部分
+		parsedURL, err := url.Parse(tenantURL)
+		if err != nil {
+			logger.Log.WithFields(logrus.Fields{
+				"error":      err.Error(),
+				"tenant_url": tenantURL,
+			}).Error("解析租户URL失败")
+			return
+		}
+		hostName := parsedURL.Host
+
+		// 构建事件数据
+		currentTime := time.Now()
+		eventData := map[string]interface{}{
+			"events": []map[string]interface{}{
+				{
+					"event_name":      "used-chat",
+					"event_time_sec":  currentTime.Unix(),
+					"event_time_nsec": currentTime.UnixNano() % 1000000000,
+				},
+			},
+		}
+
+		// 序列化请求数据
+		jsonData, err := json.Marshal(eventData)
+		if err != nil {
+			logger.Log.WithFields(logrus.Fields{
+				"error": err.Error(),
+			}).Error("序列化事件数据失败")
+			return
+		}
+
+		// 构建请求URL
+		requestURL := tenantURL + "record-onboarding-session-event"
+
+		// 创建请求
+		req, err := http.NewRequest("POST", requestURL, bytes.NewReader(jsonData))
+		if err != nil {
+			logger.Log.WithFields(logrus.Fields{
+				"error": err.Error(),
+			}).Error("创建记录事件请求失败")
+			return
+		}
+
+		// 设置请求头
+		req.Header.Set("Host", hostName)
+		req.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("User-Agent", "augment.intellij/0.184.0 (Mac OS X; aarch64; 15.2) WebStorm/2024.3.5")
+		req.Header.Set("x-api-version", "2")
+		req.Header.Set("x-request-id", requestID)
+		req.Header.Set("x-request-session-id", sessionID)
+		req.Header.Set("Accept-Charset", "UTF-8")
+
+		// 发送请求
+		client := createHTTPClient()
+		resp, err := client.Do(req)
+		if err != nil {
+			logger.Log.WithFields(logrus.Fields{
+				"error": err.Error(),
+			}).Error("发送记录事件请求失败")
+			return
+		}
+		defer resp.Body.Close()
+
+		// 记录响应状态
+		logger.Log.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"tenant_url":  tenantURL,
+		}).Info("记录会话事件完成")
+	}()
 }
 
 // 在处理聊天请求时增加token使用计数

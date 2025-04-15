@@ -105,3 +105,9 @@ func RedisHExists(key, field string) (bool, error) {
 	ctx := context.Background()
 	return RDB.HExists(ctx, key, field).Result()
 }
+
+// RedisHGetAll 获取哈希表中的所有字段和值
+func RedisHGetAll(key string) (map[string]string, error) {
+	ctx := context.Background()
+	return RDB.HGetAll(ctx, key).Result()
+}

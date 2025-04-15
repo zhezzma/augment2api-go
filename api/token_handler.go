@@ -85,41 +85,76 @@ func GetRedisTokenHandler(c *gin.Context) {
 		return
 	}
 
-	// 构建token列表
-	var tokenList []TokenInfo
+	// 使用并发方式批量获取token信息
+	var wg sync.WaitGroup
+	tokenList := make([]TokenInfo, 0, len(keys))
+	tokenListChan := make(chan TokenInfo, len(keys))
+	concurrencyLimit := 10 // 限制并发数
+	sem := make(chan struct{}, concurrencyLimit)
+
 	for _, key := range keys {
 		// 从key中提取token (格式: "token:{token}")
 		token := key[6:] // 去掉前缀 "token:"
 
-		// 获取对应的tenant_url
-		tenantURL, err := config.RedisHGet(key, "tenant_url")
-		if err != nil {
-			continue // 跳过无效的token
-		}
+		wg.Add(1)
+		sem <- struct{}{} // 获取信号量
 
-		// 获取token状态
-		status, err := config.RedisHGet(key, "status")
-		if err == nil && status == "disabled" {
-			continue // 跳过被标记为不可用的token
-		}
+		go func(tokenKey string, tokenValue string) {
+			defer wg.Done()
+			defer func() { <-sem }() // 释放信号量
 
-		// 获取备注信息
-		remark, _ := config.RedisHGet(key, "remark")
+			// 使用HGETALL一次性获取所有字段，减少网络往返
+			fields, err := config.RedisHGetAll(tokenKey)
+			if err != nil {
+				return // 跳过无效的token
+			}
 
-		// 获取token的冷却状态
-		coolStatus, _ := GetTokenCoolStatus(token)
+			// 检查必要字段
+			tenantURL, ok := fields["tenant_url"]
+			if !ok {
+				return
+			}
 
-		// 在获取token信息时，同时获取对话次数、备注和冷却状态
-		tokenList = append(tokenList, TokenInfo{
-			Token:           token,
-			TenantURL:       tenantURL,
-			UsageCount:      getTokenUsageCount(token),
-			ChatUsageCount:  getTokenChatUsageCount(token),
-			AgentUsageCount: getTokenAgentUsageCount(token),
-			Remark:          remark,
-			InCool:          coolStatus.InCool,
-			CoolEnd:         coolStatus.CoolEnd,
-		})
+			// 检查token状态
+			status, ok := fields["status"]
+			if ok && status == "disabled" {
+				return // 跳过被标记为不可用的token
+			}
+
+			// 获取备注信息
+			remark := fields["remark"]
+
+			// 获取token的冷却状态 (异步获取)
+			coolStatus, _ := GetTokenCoolStatus(tokenValue)
+
+			// 获取使用次数 (可以考虑将这些计数缓存在Redis中)
+			chatCount := getTokenChatUsageCount(tokenValue)
+			agentCount := getTokenAgentUsageCount(tokenValue)
+			totalCount := chatCount + agentCount
+
+			// 构建token信息并发送到channel
+			tokenListChan <- TokenInfo{
+				Token:           tokenValue,
+				TenantURL:       tenantURL,
+				UsageCount:      totalCount,
+				ChatUsageCount:  chatCount,
+				AgentUsageCount: agentCount,
+				Remark:          remark,
+				InCool:          coolStatus.InCool,
+				CoolEnd:         coolStatus.CoolEnd,
+			}
+		}(key, token)
+	}
+
+	// 启动一个goroutine来收集结果
+	go func() {
+		wg.Wait()
+		close(tokenListChan)
+	}()
+
+	// 从channel中收集结果
+	for info := range tokenListChan {
+		tokenList = append(tokenList, info)
 	}
 
 	// 计算总页数和分页数据
