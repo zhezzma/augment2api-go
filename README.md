@@ -103,7 +103,6 @@ docker-compose up -d
 ### 2. 获取Token
 
 
-https://img.imgdd.com/d3c389de-c894-4c1a-9b2e-2bc1c28b0f03.png
 访问 `http://ip:27080/` 进入管理页面登录页,输入访问密码进入管理面板，点击`添加TOENN`菜单
 <img width="1576" alt="image" src="https://img.imgdd.com/d3c389de-c894-4c1a-9b2e-2bc1c28b0f03.png" />
 
